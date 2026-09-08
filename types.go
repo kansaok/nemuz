@@ -128,3 +128,43 @@ type TurnInfo struct {
 	// same decisions in the same order share a digest.
 	Digest string
 }
+
+// ReviewResult is what a post-turn review decided.
+type ReviewResult struct {
+	// Reviewed is false when the turn was skipped.
+	Reviewed bool
+	// Skipped explains why, when it was — a failed turn, or one whose shape
+	// was reviewed recently.
+	Skipped string
+	// Remembered lists the memory ids created.
+	Remembered []string
+	// Drafted lists the skills proposed. All of them are quarantined: a
+	// review can propose, never enact.
+	Drafted []string
+	// TurnID is the review's own recorded turn, so the decision is auditable.
+	TurnID string
+	// Note is the reviewer's one-line summary.
+	Note string
+}
+
+// CurationAction is one decision the curator made about one skill.
+type CurationAction struct {
+	// Skill is the skill's name.
+	Skill string
+	// Action is "kept", "demoted", "archived" or "failed".
+	Action string
+	// Reason explains the decision.
+	Reason string
+}
+
+// CurationReport is what a curation run did.
+type CurationReport struct {
+	// Actions is one entry per skill considered.
+	Actions []CurationAction
+	// Skipped explains why nothing ran, when nothing ran.
+	Skipped string
+	// Changed counts the skills whose state moved.
+	Changed int
+	// Summary explains the run in one line.
+	Summary string
+}

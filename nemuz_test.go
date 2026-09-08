@@ -354,3 +354,206 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+// ---------- self-learning through the public API ----------
+
+// TestReviewKeepsWhatItLearned exercises the loop a library user gets: run a
+// turn, review it, and find the fact waiting for the next turn.
+func TestReviewKeepsWhatItLearned(t *testing.T) {
+	a := newAgent(t, []nemuz.Response{
+		// The turn itself.
+		{Text: "Deploy dijalankan lewat scripts/ship.sh.", StopReason: nemuz.StopEnd},
+		// The review that follows.
+		{
+			StopReason: nemuz.StopToolUse,
+			ToolCalls: []nemuz.ToolCall{{ID: "r1", Name: "remember", Args: args(t, map[string]any{
+				"text": "Deploy dijalankan lewat scripts/ship.sh",
+				"kind": "project",
+				"tags": []string{"deploy"},
+			})}},
+		},
+		{Text: "Saya simpan satu fakta.", StopReason: nemuz.StopEnd},
+	})
+
+	out, err := a.Run(context.Background(), "bagaimana cara deploy?")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := a.Review(context.Background(), out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Reviewed {
+		t.Fatalf("the turn was skipped: %s", got.Skipped)
+	}
+	if len(got.Remembered) != 1 {
+		t.Fatalf("remembered %v", got.Remembered)
+	}
+	if got.TurnID == "" {
+		t.Error("the review left no turn of its own to inspect")
+	}
+
+	recalled, err := a.Recall("cara deploy", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recalled) != 1 || !strings.Contains(recalled[0].Text, "ship.sh") {
+		t.Fatalf("the fact is not recallable: %+v", recalled)
+	}
+}
+
+// TestReviewedSkillsArriveQuarantined is the guarantee that matters most to
+// someone embedding nemuz: a background review cannot widen what the agent does.
+func TestReviewedSkillsArriveQuarantined(t *testing.T) {
+	a := newAgent(t, []nemuz.Response{
+		{Text: "selesai", StopReason: nemuz.StopEnd},
+		{
+			StopReason: nemuz.StopToolUse,
+			ToolCalls: []nemuz.ToolCall{{ID: "r1", Name: "draft_skill", Args: args(t, map[string]any{
+				"name":        "cara-deploy",
+				"description": "Cara men-deploy proyek ini.",
+				"body":        "Jalankan scripts/ship.sh.",
+			})}},
+		},
+		{Text: "Saya usulkan satu skill.", StopReason: nemuz.StopEnd},
+	})
+
+	out, err := a.Run(context.Background(), "bagaimana cara deploy?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.Review(context.Background(), out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Drafted) != 1 {
+		t.Fatalf("drafted %v", got.Drafted)
+	}
+
+	skills, err := a.Skills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("skills are %+v", skills)
+	}
+	if skills[0].State != "quarantine" {
+		t.Fatalf("a drafted skill is %q; a review must not be able to activate one", skills[0].State)
+	}
+	if skills[0].Scenarios != 0 {
+		t.Errorf("a fresh draft has %d scenarios", skills[0].Scenarios)
+	}
+}
+
+// TestCurateDemotesASkillThatStoppedWorking is the curator's point, reached
+// entirely through the public API.
+func TestCurateDemotesASkillThatStoppedWorking(t *testing.T) {
+	a := newAgent(t, []nemuz.Response{
+		{
+			StopReason: nemuz.StopToolUse,
+			ToolCalls:  []nemuz.ToolCall{{ID: "c1", Name: "greet", Args: args(t, map[string]string{"name": "dunia"})}},
+		},
+		{Text: "selesai", StopReason: nemuz.StopEnd},
+	}, &greet{})
+
+	out, err := a.Run(context.Background(), "sapa dunia")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A skill that claims to be proven, with a scenario demanding a tool this
+	// agent does not have. Curation should notice and send it back.
+	writeSkill(t, a, "butuh-tool-hilang", "active", "plugin__hilang", out.TurnID)
+
+	report, err := a.Curate(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Changed != 1 {
+		t.Fatalf("curation changed %d skills: %+v", report.Changed, report.Actions)
+	}
+	if report.Actions[0].Action != "demoted" {
+		t.Fatalf("action is %+v", report.Actions[0])
+	}
+
+	skills, err := a.Skills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skills[0].State != "quarantine" {
+		t.Fatalf("the broken skill is %q", skills[0].State)
+	}
+	if skills[0].PromotedBy != "" {
+		t.Error("a demoted skill kept its promotion evidence")
+	}
+}
+
+func TestCurateLeavesAWorkingSkillAlone(t *testing.T) {
+	a := newAgent(t, []nemuz.Response{
+		{
+			StopReason: nemuz.StopToolUse,
+			ToolCalls:  []nemuz.ToolCall{{ID: "c1", Name: "greet", Args: args(t, map[string]string{"name": "dunia"})}},
+		},
+		{Text: "selesai", StopReason: nemuz.StopEnd},
+	}, &greet{})
+
+	out, err := a.Run(context.Background(), "sapa dunia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(t, a, "masih-benar", "active", "greet", out.TurnID)
+
+	report, err := a.Curate(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Changed != 0 {
+		t.Fatalf("a working skill was changed: %+v", report.Actions)
+	}
+	if len(report.Actions) != 1 || report.Actions[0].Action != "kept" {
+		t.Fatalf("actions are %+v", report.Actions)
+	}
+}
+
+// writeSkill drops a skill and one scenario onto disk, the way a review would.
+func writeSkill(t *testing.T, a *nemuz.Agent, name, state, mustCall, turnID string) {
+	t.Helper()
+
+	evalDir, err := a.EvalDir(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(evalDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Copy the recording the scenario replays.
+	journalFile := filepath.Join(a.Home(), "journal", turnID+".jsonl")
+	body, err := os.ReadFile(journalFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(evalDir, "turn.jsonl"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	scenario := `{"name":"dasar","journal":"turn.jsonl","expect":{"must_call":["` + mustCall + `"]}}`
+	if err := os.WriteFile(filepath.Join(evalDir, "dasar.json"), []byte(scenario), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	skillFile := "---\n" +
+		"name: " + name + "\n" +
+		"description: Skill uji coba.\n" +
+		"state: " + state + "\n" +
+		"created_by: agent\n" +
+		"created_at: 2026-09-08T00:00:00Z\n" +
+		"last_used_at: 2026-09-08T00:00:00Z\n" +
+		"use_count: 1\n" +
+		"promoted_by: eval-lama\n" +
+		"---\n\nLangkah pertama.\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(evalDir), "SKILL.md"), []byte(skillFile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

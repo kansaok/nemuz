@@ -412,6 +412,19 @@ out, _ := agent.Run(ctx, "what changed in this repo today?")
 err := agent.Replay(ctx, out.TurnID)   // no provider, no network
 ```
 
+Self-learning is available too, and stays the caller's decision rather than
+something that happens behind their back:
+
+```go
+result, _ := agent.Review(ctx, out)       // what was worth keeping?
+report, _ := agent.Curate(ctx, false)     // do the skills still pass?
+```
+
+`Review` can remember a fact and draft a skill, and nothing else — a drafted
+skill arrives quarantined. `Curate` re-runs every active skill's scenarios and
+sends back the ones that stopped passing. Both cost far less than a turn:
+curation costs nothing at all.
+
 A tool is one interface:
 
 ```go

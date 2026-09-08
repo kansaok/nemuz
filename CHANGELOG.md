@@ -13,6 +13,24 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.6.0] — 2026-09-08
+
+### Added
+
+- **`Agent.Review` and `Agent.Curate` on the public API.** Self-learning was
+  reachable only from the CLI, so anyone embedding nemuz as a library got a
+  runtime with no memory and no curation — half the framework, behind a door
+  they could not open.
+
+  Neither runs automatically. When to review is the caller's decision, and
+  doing it after every turn is usually the wrong one; the novelty ledger still
+  skips shapes seen recently, and the result says when it did.
+- **`Options.ReviewProvider` and `Options.ReviewModel`**, so the review can run
+  on a smaller and cheaper model than the turn did. Deciding what was worth
+  keeping is a much easier job than the turn was.
+- **`ReviewResult`, `CurationReport` and `CurationAction`** as value types, so
+  the shape callers read stays stable while the stores beneath it change.
+
 ## [0.5.1] — 2026-09-08
 
 ### Fixed
@@ -237,7 +255,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/kansaok/nemuz/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/kansaok/nemuz/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kansaok/nemuz/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kansaok/nemuz/compare/v0.3.0...v0.4.0

@@ -10,10 +10,12 @@ import (
 	"github.com/kansaok/nemuz/internal/agent"
 	"github.com/kansaok/nemuz/internal/blob"
 	"github.com/kansaok/nemuz/internal/config"
+	"github.com/kansaok/nemuz/internal/curator"
 	"github.com/kansaok/nemuz/internal/journal"
 	"github.com/kansaok/nemuz/internal/llm"
 	"github.com/kansaok/nemuz/internal/llm/provider"
 	"github.com/kansaok/nemuz/internal/memory"
+	"github.com/kansaok/nemuz/internal/review"
 	"github.com/kansaok/nemuz/internal/skill"
 	"github.com/kansaok/nemuz/internal/tool"
 )
@@ -48,6 +50,13 @@ type Options struct {
 
 	// MaxSteps bounds the tool loop. Zero uses the default.
 	MaxSteps int
+
+	// ReviewProvider performs the post-turn review's model calls. It defaults
+	// to Provider, but a smaller and cheaper model is usually the right choice:
+	// deciding what was worth keeping is a much easier job than the turn was.
+	ReviewProvider Provider
+	// ReviewModel names the review's model. Defaults to Model.
+	ReviewModel string
 }
 
 // DefaultSystemPrompt is used when Options.System is empty.
@@ -187,6 +196,145 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 		_ = a.memories.RecordUse(recalled...)
 	}
 	return out, nil
+}
+
+// Review looks at a finished turn and decides whether anything is worth
+// keeping. It is not called automatically: when to review is the caller's
+// decision, and doing it after every turn is usually the wrong one.
+//
+// The reviewer can do exactly two things — remember a fact and draft a skill —
+// because those are the only tools in its registry. Anything it drafts is
+// quarantined, so it proposes and the eval gate decides.
+//
+// Turn shapes reviewed recently are skipped, so a run of near-identical turns
+// costs one review rather than twenty. The result says when that happened.
+func (a *Agent) Review(ctx context.Context, out Outcome) (ReviewResult, error) {
+	provider := a.opts.ReviewProvider
+	if provider == nil {
+		provider = a.opts.Provider
+	}
+	model := a.opts.ReviewModel
+	if model == "" {
+		model = a.opts.Model
+	}
+
+	ledger, err := review.OpenLedger(filepath.Join(a.paths.Root, "reviewed.txt"))
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	r := &review.Reviewer{
+		Provider:   provider,
+		Model:      model,
+		Memories:   a.memories,
+		Skills:     a.skills,
+		JournalDir: a.paths.Journal,
+		Blobs:      a.blobs,
+		Ledger:     ledger,
+	}
+
+	toolsUsed, errored, err := a.turnSummary(out.TurnID)
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	got, err := r.Review(ctx, review.Input{
+		TurnID:    out.TurnID,
+		Prompt:    a.lastPrompt(out.TurnID),
+		Answer:    out.Text,
+		ToolsUsed: toolsUsed,
+		Errored:   errored,
+	})
+	result := ReviewResult{
+		Reviewed: got.Reviewed, Skipped: got.Skipped,
+		Remembered: got.Remembered, Drafted: got.Drafted,
+		TurnID: got.TurnID, Note: got.Note,
+	}
+	return result, err
+}
+
+// Curate re-verifies, retires and tidies the skills the agent wrote for itself.
+//
+// Re-verification is the useful part and the reason this is cheap: a skill that
+// passed once is run against its own scenarios again, and because scenarios
+// replay recordings it costs no model calls. A skill that no longer passes goes
+// back to quarantine.
+//
+// Skills a person wrote, and pinned skills, are never touched, and nothing is
+// ever deleted. Calling this more often than once a day does nothing; pass
+// force to override that.
+func (a *Agent) Curate(ctx context.Context, force bool) (CurationReport, error) {
+	state, err := curator.OpenState(filepath.Join(a.paths.Root, "curator.json"))
+	if err != nil {
+		return CurationReport{}, err
+	}
+	runner := &agent.ScenarioRunner{
+		Tools:      a.tools,
+		Blobs:      a.blobs,
+		JournalDir: filepath.Join(a.paths.Root, "eval-journals"),
+		BaseSystem: a.opts.System,
+	}
+	c := &curator.Curator{
+		Skills: a.skills,
+		Gate:   &skill.Gate{Store: a.skills, Run: runner.Run},
+		State:  state,
+	}
+	if force {
+		c.State = nil
+	}
+
+	got, err := c.Run(ctx)
+	if err != nil {
+		return CurationReport{}, err
+	}
+	report := CurationReport{
+		Skipped: got.Skipped, Changed: got.Changed(), Summary: got.Summary(),
+	}
+	for _, act := range got.Actions {
+		report.Actions = append(report.Actions, CurationAction{
+			Skill: act.Skill, Action: act.Action, Reason: act.Reason,
+		})
+	}
+	return report, nil
+}
+
+// turnSummary reads back which tools a turn used and whether it failed.
+func (a *Agent) turnSummary(turnID string) (tools []string, errored bool, err error) {
+	events, err := a.Events(turnID)
+	if err != nil {
+		return nil, false, err
+	}
+	seen := map[string]bool{}
+	for _, e := range events {
+		if e.Kind == journal.KindError {
+			errored = true
+		}
+		if e.Kind != journal.KindToolCall {
+			continue
+		}
+		var payload struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(e.Payload, &payload); err != nil || payload.Name == "" {
+			continue
+		}
+		if !seen[payload.Name] {
+			seen[payload.Name] = true
+			tools = append(tools, payload.Name)
+		}
+	}
+	return tools, errored, nil
+}
+
+// lastPrompt reads a turn's prompt back out of its recording.
+func (a *Agent) lastPrompt(turnID string) string {
+	events, err := a.Events(turnID)
+	if err != nil {
+		return ""
+	}
+	start, err := replayStart(events, a.blobs)
+	if err != nil {
+		return ""
+	}
+	return start.Prompt
 }
 
 // Replay runs a recorded turn again against its recording and reports the first
