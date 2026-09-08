@@ -89,7 +89,7 @@ says so on the others rather than implying otherwise.
 
 ## Try it
 
-Requires Go 1.24 or newer to build from source.
+Requires Go 1.25 or newer to build from source — `modernc.org/sqlite` sets that floor.
 
 ```bash
 make            # lint, test, build

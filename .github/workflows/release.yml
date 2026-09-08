@@ -7,6 +7,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # CI must build with the version go.mod names, not one Go fetched behind our
+  # back. See .github/workflows/ci.yml for how that went wrong.
+  GOTOOLCHAIN: local
+
 jobs:
   release:
     runs-on: ubuntu-24.04
@@ -19,7 +24,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           check-latest: true
 
       - uses: anchore/sbom-action/download-syft@v0

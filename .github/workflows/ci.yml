@@ -10,7 +10,14 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.24"
+  # Must match the go directive in go.mod. The check step below enforces that,
+  # because a dependency can raise it — modernc.org/sqlite did — and without
+  # the check the only job that notices is the offline one, hours later.
+  GO_VERSION: "1.25"
+  # Without this, Go silently downloads whatever toolchain go.mod asks for, so
+  # CI tests a version it never names. The offline job cannot download one, so
+  # a mismatch showed up there and nowhere else.
+  GOTOOLCHAIN: local
 
 jobs:
   test:
@@ -23,6 +30,16 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
+
+      - name: Go version matches go.mod
+        run: |
+          required=$(go mod edit -json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Go"])')
+          if [ "${required%.*}" != "$GO_VERSION" ] && [ "$required" != "$GO_VERSION" ]; then
+            echo "go.mod requires Go $required but CI runs $GO_VERSION."
+            echo "A dependency probably raised it. Update GO_VERSION here and the README."
+            exit 1
+          fi
+          go version
 
       - name: Formatting
         run: |

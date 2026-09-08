@@ -13,6 +13,34 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.9.1] — 2026-09-08
+
+### Fixed
+
+- **CI was testing a Go version it did not name, and 0.9.0 shipped with it
+  red.** Adding `modernc.org/sqlite` raised the `go` directive from 1.24 to
+  1.25, because the driver itself requires it. Two of the three CI jobs passed
+  anyway: Go's default `GOTOOLCHAIN` quietly downloads whatever go.mod asks for,
+  so they were building with 1.25 while claiming 1.24. The offline job could not
+  download a toolchain, so it alone failed — which is the job doing exactly what
+  it exists for, on a mismatch nothing else could see.
+
+  Three changes, in order of how much they matter:
+
+  - `GOTOOLCHAIN: local` in both workflows. CI now builds with the version it
+    names, and a mismatch fails immediately rather than in one job hours later.
+  - A step that compares go.mod's `go` directive against the version CI installs
+    and fails with an explanation. A dependency raising the floor is a normal
+    thing to happen; noticing it should not depend on which job runs first.
+  - CI and the release workflow both moved to Go 1.25.
+
+### Changed
+
+- **nemuz now requires Go 1.25** to build from source, up from 1.24, because
+  `modernc.org/sqlite` does. This should have been stated in 0.9.0 and was not:
+  it happened silently when the dependency was added, which is precisely the
+  failure the guard above now prevents.
+
 ## [0.9.0] — 2026-09-08
 
 Your own history, searchable.
@@ -385,7 +413,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/kansaok/nemuz/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kansaok/nemuz/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kansaok/nemuz/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kansaok/nemuz/compare/v0.6.0...v0.7.0
