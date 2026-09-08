@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/kansaok/nemuz/internal/agent"
 	"github.com/kansaok/nemuz/internal/llm"
+	"github.com/kansaok/nemuz/internal/metrics"
 )
 
 // stubRunner records what it was asked and returns a fixed outcome.
@@ -307,5 +309,112 @@ func TestServerRefusesIncompleteOptions(t *testing.T) {
 		if _, err := NewServer(opts); err == nil {
 			t.Errorf("%s: an incomplete server was created", name)
 		}
+	}
+}
+
+// ---------- metrics ----------
+
+func newMeteredServer(t *testing.T, runner Runner) (*httptest.Server, *metrics.Metrics) {
+	t.Helper()
+	timeNow = func() time.Time { return time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC) }
+	t.Cleanup(func() { timeNow = time.Now })
+
+	m := metrics.New()
+	s, err := NewServer(Options{Runner: runner, Model: "nemuz-test", Addr: "127.0.0.1:0", Metrics: m})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	return srv, m
+}
+
+func scrape(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	resp, err := srv.Client().Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("scrape returned %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("content type is %q; Prometheus expects text/plain", ct)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+func TestTurnsAndResponsesAreMeasured(t *testing.T) {
+	runner := &stubRunner{outcome: agent.Outcome{
+		Text: "ok", TurnID: "01A", Steps: 2, ToolCalls: 1,
+		Usage: llm.Usage{InputTokens: 120, OutputTokens: 30, CachedTokens: 64},
+	}}
+	srv, _ := newMeteredServer(t, runner)
+
+	post(t, srv, "/v1/chat/completions", "", `{"messages":[{"role":"user","content":"halo"}]}`)
+
+	body := scrape(t, srv)
+	for _, want := range []string{
+		`nemuz_turns_total{outcome="ok"} 1`,
+		`nemuz_tool_calls_total 1`,
+		`nemuz_turn_steps_total 2`,
+		`nemuz_tokens_total{kind="input"} 120`,
+		`nemuz_tokens_total{kind="cached"} 64`,
+		`nemuz_http_responses_total{status="200"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q from:\n%s", want, body)
+		}
+	}
+}
+
+func TestFailedTurnsAreCountedSeparately(t *testing.T) {
+	srv, _ := newMeteredServer(t, &stubRunner{err: errors.New("provider is down")})
+	post(t, srv, "/v1/chat/completions", "", `{"messages":[{"role":"user","content":"halo"}]}`)
+
+	body := scrape(t, srv)
+	if !strings.Contains(body, `nemuz_turns_total{outcome="error"} 1`) {
+		t.Errorf("a failed turn was not counted as an error:\n%s", body)
+	}
+	if !strings.Contains(body, `nemuz_http_responses_total{status="500"} 1`) {
+		t.Errorf("the 500 was not counted:\n%s", body)
+	}
+}
+
+// TestMetricsAreAbsentWhenNotEnabled keeps an endpoint that always reads zero
+// from looking like a working one.
+func TestMetricsAreAbsentWhenNotEnabled(t *testing.T) {
+	srv := newServer(t, &stubRunner{}, "")
+	resp, err := srv.Client().Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status is %d, want 404 when metrics are off", resp.StatusCode)
+	}
+}
+
+// TestStreamingStillFlushesWhenMeasured guards the wrapper: a recorder that
+// swallowed Flush would turn every streamed answer into one blob at the end.
+func TestStreamingStillFlushesWhenMeasured(t *testing.T) {
+	srv, _ := newMeteredServer(t, &stubRunner{outcome: agent.Outcome{Text: "halo", TurnID: "01A"}})
+
+	resp := post(t, srv, "/v1/chat/completions", "",
+		`{"stream":true,"messages":[{"role":"user","content":"halo"}]}`)
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("content type is %q", ct)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "[DONE]") {
+		t.Errorf("the stream did not complete:\n%s", body)
 	}
 }

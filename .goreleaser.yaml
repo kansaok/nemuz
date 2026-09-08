@@ -1,0 +1,76 @@
+# Release configuration. Run by CI when a v* tag is pushed; see
+# .github/workflows/release.yml.
+version: 2
+
+project_name: nemuz
+
+before:
+  hooks:
+    # A release that does not build and pass its own tests is not a release.
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: nemuz
+    main: ./cmd/nemuz
+    binary: nemuz
+    env:
+      # No cgo anywhere: the single static binary is the whole distribution
+      # story, and one linked C library would end it.
+      - CGO_ENABLED=0
+    flags:
+      # trimpath keeps build machine paths out of the binary, so two builds of
+      # one commit produce the same bytes.
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.Commit={{.ShortCommit}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: nemuz
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - CHANGELOG.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+sboms:
+  # A software bill of materials, so anyone can see what is inside without
+  # taking the release notes' word for it.
+  - artifacts: archive
+
+changelog:
+  # The changelog is written by hand in CHANGELOG.md, where the reasoning
+  # lives. Generating a second one from commit subjects would only disagree
+  # with it.
+  disable: true
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Install
+
+    Download the archive for your platform, or:
+
+    ```
+    go install github.com/kansaok/nemuz/cmd/nemuz@{{ .Tag }}
+    ```
+
+    Verify what you downloaded against `checksums.txt`.
+
+    Linux binaries confine tool execution with Landlock. Run `nemuz doctor` to
+    confirm it is enforced on your kernel; macOS and Windows have no sandbox
+    backend yet, and doctor says so rather than implying otherwise.

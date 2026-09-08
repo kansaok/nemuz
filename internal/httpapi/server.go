@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/kansaok/nemuz/internal/agent"
+	"github.com/kansaok/nemuz/internal/metrics"
 )
 
 // Runner is the part of an agent this package needs.
@@ -51,6 +52,9 @@ type Options struct {
 	Addr string
 	// Timeout bounds one request. Zero uses DefaultTimeout.
 	Timeout time.Duration
+	// Metrics records turns and responses. Nil disables /metrics entirely,
+	// rather than serving an endpoint that always reads zero.
+	Metrics *metrics.Metrics
 }
 
 // DefaultTimeout bounds a single request.
@@ -89,9 +93,10 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /health/detailed", s.healthDetailed)
+	mux.HandleFunc("GET /metrics", s.serveMetrics)
 	mux.Handle("GET /v1/models", s.authenticated(http.HandlerFunc(s.listModels)))
 	mux.Handle("POST /v1/chat/completions", s.authenticated(http.HandlerFunc(s.completions)))
-	return mux
+	return s.observed(mux)
 }
 
 // isLoopback reports whether addr binds only to this machine.
@@ -176,7 +181,9 @@ func (s *Server) completions(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
+	started := time.Now()
 	out, err := s.opts.Runner.Run(ctx, prompt)
+	s.recordTurn(out, time.Since(started), err)
 	if err != nil {
 		// The turn is recorded even when it fails, so the id is worth
 		// returning: it is how the caller finds out what went wrong.

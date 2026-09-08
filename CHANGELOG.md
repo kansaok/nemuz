@@ -13,6 +13,44 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.8.0] — 2026-09-08
+
+Installable, and observable.
+
+### Added
+
+- **Releases.** `.goreleaser.yaml` and a workflow that runs on a `v*` tag,
+  producing static cgo-free binaries for Linux, macOS and Windows on amd64 and
+  arm64, with SHA-256 checksums and an SBOM. Every target was verified to
+  cross-compile, and the config was validated with `goreleaser check` and a real
+  build rather than assumed correct — a release config only fails on the tag
+  that needed it.
+- **`/metrics`**, in Prometheus text format: turns by outcome, model rounds,
+  tool calls, tokens by direction with cached reported separately, a duration
+  histogram, HTTP responses by status, and uptime.
+
+  It is written by hand, with no metrics library. The exposition format is a few
+  lines of text and nemuz publishes about a dozen numbers; a client library
+  would have added megabytes and a dependency tree to a binary whose whole
+  argument is that it is one small file. The tests assert on the emitted bytes,
+  including that histogram buckets are cumulative and that nothing renders in
+  scientific notation.
+
+  Two deliberate choices: a label that has never been observed is absent rather
+  than zero, because a counter reading zero for something that never happened
+  invites the wrong conclusion; and `/metrics` needs no API key, for the same
+  reason `/health` does not — a scraper is usually a sidecar with no
+  credentials, and what is published is counts, never content.
+
+### Not done, and why
+
+- **OpenTelemetry traces.** The OTel SDK and an OTLP exporter would add several
+  megabytes and a large dependency tree. For a project whose first claim is a
+  small single binary, that trade needs a concrete reason, and right now there
+  is none: the journal already records every turn in more detail than a trace
+  would, and `/metrics` covers aggregate health. This stays open rather than
+  quietly dropped.
+
 ## [0.7.0] — 2026-09-08
 
 Two ways in: any OpenAI client, and any ACP editor.
@@ -296,7 +334,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/kansaok/nemuz/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kansaok/nemuz/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kansaok/nemuz/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/kansaok/nemuz/compare/v0.5.0...v0.5.1

@@ -74,9 +74,22 @@ differ in timing, and that must not count as a difference.
 | **No file over 800 lines** | Enforced in CI. Large files cannot be reviewed, unit-tested, or merged cleanly. |
 | **Big payloads never in the database** | They go to a content-addressed blob store; everything else holds hashes. |
 
+## Install
+
+Download an archive from [releases](https://github.com/kansaok/nemuz/releases),
+or:
+
+```bash
+go install github.com/kansaok/nemuz/cmd/nemuz@latest
+```
+
+Builds are static and cgo-free for Linux, macOS and Windows on amd64 and arm64,
+with checksums and an SBOM. Landlock confinement is Linux only; `nemuz doctor`
+says so on the others rather than implying otherwise.
+
 ## Try it
 
-Requires Go 1.24 or newer.
+Requires Go 1.24 or newer to build from source.
 
 ```bash
 make            # lint, test, build
@@ -418,6 +431,11 @@ The server binds to loopback by default and refuses to listen anywhere else
 without `NEMUZ_API_KEY`. An agent endpoint with no key is a remote shell with
 extra steps.
 
+`/metrics` serves Prometheus text: turns by outcome, tool calls, tokens by
+direction, and a duration histogram whose buckets run to ten minutes, because
+agent turns are not web requests. It publishes counts and durations — never a
+prompt, an answer, or a key.
+
 ### From an editor
 
 ```bash
@@ -495,6 +513,7 @@ internal/review/    the post-turn review, and its two-tool registry
 internal/curator/   re-verification, retirement, quarantine expiry
 internal/httpapi/   the OpenAI-compatible server
 internal/acp/       the Agent Client Protocol server
+internal/metrics/   Prometheus exposition, written by hand rather than imported
 internal/sandbox/   Landlock enforcement
 internal/config/    where state lives
 bench/              size, startup, and file-length budgets, enforced by make
@@ -538,7 +557,8 @@ cannot be rebuilt from it.
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp
 - [x] OpenAI-compatible HTTP API, with replayable completion ids
 - [x] Agent Client Protocol v1, for Zed and other editors
-- [ ] OpenTelemetry and a Prometheus endpoint
+- [x] A Prometheus endpoint, and multi-platform releases with checksums and an SBOM
+- [ ] OpenTelemetry traces — deferred: the SDK would cost more than the whole binary
 - [ ] A durable store: full-text search over turns, usage and cost tracking
 
 ## Changelog

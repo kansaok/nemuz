@@ -13,6 +13,7 @@ import (
 	"github.com/kansaok/nemuz"
 	"github.com/kansaok/nemuz/internal/httpapi"
 	"github.com/kansaok/nemuz/internal/llm/provider"
+	"github.com/kansaok/nemuz/internal/metrics"
 	"github.com/spf13/cobra"
 )
 
@@ -36,6 +37,7 @@ func serveCmd() *cobra.Command {
 		allowExec    []string
 		useSkills    bool
 		useMemories  bool
+		withMetrics  bool
 	)
 
 	c := &cobra.Command{
@@ -90,11 +92,16 @@ func serveCmd() *cobra.Command {
 			}
 			defer agent.Close()
 
+			var recorder *metrics.Metrics
+			if withMetrics {
+				recorder = metrics.New()
+			}
 			server, err := httpapi.NewServer(httpapi.Options{
-				Runner: agent,
-				Model:  model,
-				APIKey: os.Getenv(apiKeyEnv),
-				Addr:   addr,
+				Runner:  agent,
+				Model:   model,
+				APIKey:  os.Getenv(apiKeyEnv),
+				Addr:    addr,
+				Metrics: recorder,
 			})
 			if err != nil {
 				return err
@@ -105,6 +112,9 @@ func serveCmd() *cobra.Command {
 			fmt.Fprintf(out, "  model     %s via %s\n", model, p.Name())
 			fmt.Fprintf(out, "  workspace %s\n", ts.Workspace)
 			fmt.Fprintf(out, "  sandbox   %s\n", ts.Sandbox)
+			if withMetrics {
+				fmt.Fprintf(out, "  metrics   http://%s/metrics\n", addr)
+			}
 			if os.Getenv(apiKeyEnv) == "" {
 				fmt.Fprintf(out, "  auth      none — loopback only. Set %s to require a key.\n", apiKeyEnv)
 			} else {
@@ -130,6 +140,7 @@ func serveCmd() *cobra.Command {
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program a plugin may run; repeatable")
 	c.Flags().BoolVar(&useSkills, "skills", true, "include active learned skills in the system prompt")
 	c.Flags().BoolVar(&useMemories, "memories", true, "recall relevant memories into the system prompt")
+	c.Flags().BoolVar(&withMetrics, "metrics", true, "serve Prometheus metrics at /metrics")
 	return c
 }
 
