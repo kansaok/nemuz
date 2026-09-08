@@ -1,0 +1,17 @@
+{
+  "name": "@nemuz/sdk",
+  "version": "0.1.0",
+  "description": "Write nemuz agent tools in TypeScript or JavaScript.",
+  "type": "module",
+  "main": "./index.mjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs"
+    }
+  },
+  "files": ["index.mjs", "index.d.ts", "README.md"],
+  "engines": { "node": ">=18" },
+  "license": "Apache-2.0"
+}
