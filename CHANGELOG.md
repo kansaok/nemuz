@@ -13,6 +13,46 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.3.0] — 2026-09-08
+
+The agent starts learning without being asked.
+
+### Added
+
+- **Memory.** Facts the agent keeps from past turns, stored one Markdown file
+  each with YAML frontmatter, and recalled into the system prompt by relevance.
+  Recall is deterministic — the same query against the same store always returns
+  the same memories in the same order — because memories go into the prompt, and
+  a recall that varied between runs would make every turn unreplayable for
+  reasons unrelated to the agent.
+- **Background review.** After a turn, a second smaller turn decides whether
+  anything was worth keeping. It is journaled as its own turn, so every decision
+  is auditable, and it runs on a separate model call so the conversation's
+  prompt cache is untouched.
+- **A two-tool reviewer.** The reviewer can `remember` a fact and `draft_skill`.
+  It cannot read files, run commands, or reach the network, because those tools
+  are not in its registry — a structural guarantee rather than a prompt asking
+  it to behave. Drafted skills are quarantined; the reviewer proposes and the
+  eval gate decides.
+- **Novelty filtering.** Turn shapes are fingerprinted from their tools and the
+  distinctive words of their prompt — deliberately not the answer — and a shape
+  reviewed recently is skipped. Hermes Agent reviews after every turn; this is
+  where nemuz diverges, because paying to rediscover that the twentieth "run the
+  tests" of the afternoon taught nothing is pure waste.
+- **`nemuz memory`** — `ls`, `show`, `recall`, `forget`, `pin`, `unpin`.
+  `recall` runs exactly what a turn would run, so a surprising recall can be
+  traced.
+- **`--review`, `--review-model`, `--memories`** on `nemuz run`. Review is on by
+  default; the novelty ledger is what makes that affordable.
+
+### Changed
+
+- `turn.start` now records the ids of the memories recalled into the prompt, so
+  a turn's answer can be traced to what the agent had been reminded of.
+- Memories are deletable, unlike skills, which archive. A skill's removal changes
+  what the agent can do, so it stays reversible; a wrong fact should simply stop
+  being there rather than linger where the agent still believes it.
+
 ## [0.2.0] — 2026-09-08
 
 The sandbox stops being a claim and becomes a fact.
@@ -102,6 +142,7 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kansaok/nemuz/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kansaok/nemuz/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kansaok/nemuz/releases/tag/v0.1.0

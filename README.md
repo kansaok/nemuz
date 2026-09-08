@@ -8,10 +8,10 @@ Bugs become reproducible. Regressions become testable without spending a single
 API call. And skills the agent teaches itself can be proven before they are
 trusted.
 
-> Status: early. The turn loop, provider adapters, tool plugins, learned skills
-> with an eval gate, journal, replay, and the Landlock sandbox work and are
-> tested end to end. Memory, the idle curator, and chat channels are not built
-> yet.
+> Status: early. The turn loop, provider adapters, tool plugins, memory,
+> background review, learned skills with an eval gate, journal, replay, and the
+> Landlock sandbox work and are tested end to end. The idle curator and chat
+> channels are not built yet.
 
 ## Why
 
@@ -121,6 +121,64 @@ and the replay stops at the exact point where the run stopped matching:
 ```
 DIVERGED  llm: replay diverged before model call 2 — the request differs from the recording
 ```
+
+## Memory, and learning without being asked
+
+After a turn finishes, a second smaller turn looks at it and decides whether
+anything is worth keeping. This is Hermes Agent's mechanism, and it works.
+
+```
+$ nemuz run "bagaimana cara deploy ke staging?"
+Deploy ke staging: jalankan scripts/ship.sh staging.
+
+review: remembered 1 fact(s) — nemuz memory ls
+```
+
+Next time, that fact comes back on its own:
+
+```
+$ nemuz run "ingatkan saya soal deploy staging"
+1 memories recalled
+
+Seperti yang saya ingat, jalankan scripts/ship.sh staging.
+```
+
+Three things make this safe to leave switched on.
+
+**The reviewer can do exactly two things.** It can remember a fact and draft a
+skill. It cannot read files, run commands, or reach the network — not because
+the prompt asks it not to, but because those tools are not in its registry.
+A test asserts it.
+
+**A drafted skill is quarantined.** The reviewer proposes; the eval gate
+decides. There is no argument and no code path that produces an active skill.
+
+**Repeated turns are reviewed once.** Hermes reviews after every turn, which
+means paying for the twentieth "run the tests" of the afternoon to rediscover
+that there is nothing to learn. nemuz fingerprints the shape of a turn — its
+tools and the distinctive words of its prompt, deliberately not the answer — and
+skips shapes it has seen recently:
+
+```
+review skipped — a turn of this shape was reviewed recently
+```
+
+Recall is deterministic: the same query against the same store always returns
+the same memories in the same order. That is not tidiness. Memories go into the
+system prompt, so a recall that varied between runs would make every turn
+unreplayable for reasons that have nothing to do with the agent. The ids that
+were recalled are written into the turn's record, so a reader six weeks later
+can see what the agent had been reminded of:
+
+```json
+{"env": {"memories": "01M201APKB49KG36N2E8HVMSBW", "sandbox": "landlock-v1"}}
+```
+
+Memories are **not** gated the way skills are, and the asymmetry is deliberate.
+A skill is a procedure whose misuse does damage. A memory is a claim about the
+world, corrected the way a person corrects one — `nemuz memory forget <id>`,
+which really deletes. Leaving a corrected fact archived would mean the agent
+still held a belief its user had explicitly denied.
 
 ## Learned skills, and the gate
 
@@ -314,6 +372,8 @@ internal/journal/   append-only events, digests, cassettes, replay
 internal/blob/      content-addressed store for large payloads
 internal/plugin/    JSON-RPC host, capability policy
 internal/skill/     learned skills, lifecycle invariants, the eval gate
+internal/memory/    remembered facts and deterministic recall
+internal/review/    the post-turn review, and its two-tool registry
 internal/sandbox/   Landlock enforcement
 internal/config/    where state lives
 bench/              size, startup, and file-length budgets, enforced by make
@@ -331,6 +391,8 @@ journal/<turn>.jsonl      append-only records — greppable, rsync-friendly
 blobs/<ab>/<sha256>       large payloads, deduplicated
 skills/<name>/SKILL.md    a learned skill: YAML frontmatter plus Markdown
 skills/<name>/evals/      its scenarios, and the recordings they replay
+memories/<id>.md          one remembered fact each
+reviewed.txt              turn shapes reviewed recently
 ```
 
 The journal survives a database reset, because the database holds nothing that
@@ -346,7 +408,8 @@ cannot be rebuilt from it.
 - [x] Plugin host over JSON-RPC, capability policy, and the TypeScript SDK
 - [x] Learned skills, lifecycle invariants, and the eval gate
 - [x] Sandboxed tool worker, verified end to end by `nemuz doctor`
-- [ ] Memory, the idle curator, and background review after each turn
+- [x] Memory with deterministic recall, and background review with novelty filtering
+- [ ] The idle curator: retiring skills nobody uses
 - [ ] seccomp filters and network capabilities
 - [ ] Sandbox backends for macOS and Windows
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp

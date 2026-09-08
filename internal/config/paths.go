@@ -16,12 +16,13 @@ const EnvHome = "NEMUZ_HOME"
 // back up with plain rsync and survive a database reset, while the database
 // holds only indexes and operational state that can be rebuilt from them.
 type Paths struct {
-	Root    string // ~/.nemuz
-	Journal string // append-only turn records
-	Blobs   string // content-addressed payloads
-	Skills  string // learned skills and their eval scenarios
-	Plugins string // installed plugins
-	DB      string // state.db
+	Root     string // ~/.nemuz
+	Journal  string // append-only turn records
+	Blobs    string // content-addressed payloads
+	Skills   string // learned skills and their eval scenarios
+	Memories string // facts kept from past turns
+	Plugins  string // installed plugins
+	DB       string // state.db
 }
 
 // Resolve returns the paths for this machine, honouring NEMUZ_HOME.
@@ -40,19 +41,20 @@ func Resolve() (Paths, error) {
 // At returns the paths rooted at dir.
 func At(dir string) Paths {
 	return Paths{
-		Root:    dir,
-		Journal: filepath.Join(dir, "journal"),
-		Blobs:   filepath.Join(dir, "blobs"),
-		Skills:  filepath.Join(dir, "skills"),
-		Plugins: filepath.Join(dir, "plugins"),
-		DB:      filepath.Join(dir, "state.db"),
+		Root:     dir,
+		Journal:  filepath.Join(dir, "journal"),
+		Blobs:    filepath.Join(dir, "blobs"),
+		Skills:   filepath.Join(dir, "skills"),
+		Memories: filepath.Join(dir, "memories"),
+		Plugins:  filepath.Join(dir, "plugins"),
+		DB:       filepath.Join(dir, "state.db"),
 	}
 }
 
 // EnsureDirs creates the directories nemuz needs, with owner-only permissions
 // because credentials and transcripts live under them.
 func (p Paths) EnsureDirs() error {
-	for _, d := range []string{p.Root, p.Journal, p.Blobs, p.Skills, p.Plugins} {
+	for _, d := range []string{p.Root, p.Journal, p.Blobs, p.Skills, p.Memories, p.Plugins} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return fmt.Errorf("config: create %s: %w", d, err)
 		}

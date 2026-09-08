@@ -32,6 +32,9 @@ func runCmd() *cobra.Command {
 		allowNet     []string
 		allowExec    []string
 		useSkills    bool
+		useMemories  bool
+		doReview     bool
+		reviewModel  string
 		sandboxMode  string
 	)
 
@@ -87,6 +90,17 @@ func runCmd() *cobra.Command {
 				}
 			}
 
+			// Recall is deterministic, so the memories a turn carries are a
+			// function of the store and the prompt — and the ids are recorded
+			// below, so a later reader can see what the agent was told.
+			var recalled []string
+			if useMemories {
+				systemPrompt, recalled, err = recallIntoPrompt(systemPrompt, cmdArgs[0])
+				if err != nil {
+					return err
+				}
+			}
+
 			turnID, err := journal.NewTurnID()
 			if err != nil {
 				return err
@@ -104,7 +118,7 @@ func runCmd() *cobra.Command {
 				Model:       model,
 				System:      systemPrompt,
 				MaxSteps:    maxSteps,
-				Environment: map[string]string{"sandbox": ts.Sandbox},
+				Environment: turnEnvironment(ts.Sandbox, recalled),
 			}
 
 			out := cmd.OutOrStdout()
@@ -112,6 +126,9 @@ func runCmd() *cobra.Command {
 				turnID, p.Name(), ts.Workspace, ts.Sandbox, ts.Registry.Len(), strings.Join(ts.Registry.Names(), ", "))
 			if len(skillNames) > 0 {
 				fmt.Fprintf(out, "%d skills: %s\n", len(skillNames), strings.Join(skillNames, ", "))
+			}
+			if len(recalled) > 0 {
+				fmt.Fprintf(out, "%d memories recalled\n", len(recalled))
 			}
 			fmt.Fprintln(out)
 
@@ -131,6 +148,28 @@ func runCmd() *cobra.Command {
 				fmt.Fprintf(out, " · %d cached", outcome.Usage.CachedTokens)
 			}
 			fmt.Fprintf(out, "\nreplay with: nemuz replay %s --workspace %s\n", turnID, workspace)
+
+			// Recall is only useful if it improves over time, which means
+			// noting which memories actually got used.
+			if len(recalled) > 0 {
+				if store, err := openMemoryStore(); err == nil {
+					_ = store.RecordUse(recalled...)
+				}
+			}
+
+			if doReview {
+				result, reviewErr := runReview(cmd.Context(), reviewInput{
+					provider:   p,
+					model:      firstNonEmpty(reviewModel, model),
+					turnID:     turnID,
+					prompt:     cmdArgs[0],
+					answer:     outcome.Text,
+					toolsUsed:  ts.Registry.Names(),
+					journalDir: paths.Journal,
+					blobs:      bs,
+				})
+				reportReview(cmd, result, reviewErr)
+			}
 			return nil
 		},
 	}
@@ -146,6 +185,9 @@ func runCmd() *cobra.Command {
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program a plugin may run; repeatable")
 	c.Flags().BoolVar(&useSkills, "skills", true, "include active learned skills in the system prompt")
 	c.Flags().StringVar(&sandboxMode, "sandbox", string(SandboxAuto), "confine the built-in tools: on, auto, or off")
+	c.Flags().BoolVar(&useMemories, "memories", true, "recall relevant memories into the system prompt")
+	c.Flags().BoolVar(&doReview, "review", true, "after the turn, decide what was worth remembering")
+	c.Flags().StringVar(&reviewModel, "review-model", "", "cheaper model for the review (defaults to --model)")
 	return c
 }
 
