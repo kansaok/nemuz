@@ -65,8 +65,8 @@ type Request struct {
 type StopReason string
 
 const (
-	StopEnd       StopReason = "end"       // finished its answer
-	StopToolUse   StopReason = "tool_use"  // wants tools run
+	StopEnd       StopReason = "end"      // finished its answer
+	StopToolUse   StopReason = "tool_use" // wants tools run
 	StopMaxTokens StopReason = "max_tokens"
 )
 

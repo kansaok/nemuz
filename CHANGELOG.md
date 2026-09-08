@@ -13,6 +13,42 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.4.0] — 2026-09-08
+
+nemuz becomes importable, and its claims become enforced.
+
+### Added
+
+- **A public API.** The root package `github.com/kansaok/nemuz` exposes
+  `Open`, `Run`, `Replay`, `Turns`, `Events`, `Remember`, `Recall`, `Forget`,
+  `Skills` and `OpenProvider`, plus the `Tool` and `Provider` interfaces to
+  implement. Until now every package was under `internal/`, which meant nobody
+  could build on nemuz at all — a framework nobody can import is not a
+  framework. Its tests live in an external test package, so anything they need
+  is by definition part of the API.
+- **CI.** Three jobs: build and test with the race detector; the same suite with
+  outbound traffic cut at the firewall, which turns "no test touches the
+  network" from an intention into a fact; and a job that runs `nemuz doctor` and
+  requires it to report the sandbox verified.
+- **A gofmt check**, which immediately found two files that were not formatted.
+
+### Fixed
+
+- **A plugin that died during startup lost its own error message.** `cmd.Wait`
+  ran concurrently with the goroutines reading the plugin's pipes, so Wait
+  closed them out from under the readers and the host reported a broken pipe
+  instead of what the plugin had said. Go's own documentation warns against
+  this; the race detector under CI-like load is what surfaced it. Wait now runs
+  only after both pipes are drained.
+- **A flaky plugin test.** Two probes slept for the same duration as the
+  handshake timeout, so on a loaded machine they exited at the moment the host
+  gave up. They now block on stdin, which is what a real plugin does.
+
+### Changed
+
+- Removed a stale roadmap line that claimed memory, skills and the eval gate
+  were still outstanding.
+
 ## [0.3.0] — 2026-09-08
 
 The agent starts learning without being asked.
@@ -142,7 +178,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kansaok/nemuz/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kansaok/nemuz/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kansaok/nemuz/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kansaok/nemuz/releases/tag/v0.1.0

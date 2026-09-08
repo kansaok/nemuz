@@ -360,9 +360,41 @@ has it try to read a file outside its workspace:
 A build that computed the right grants and never applied them would pass every
 other check and fail this one.
 
+## Using nemuz as a library
+
+The root package is the API. Everything under `internal/` is not, and changes
+without notice.
+
+```go
+import "github.com/kansaok/nemuz"
+
+provider, _ := nemuz.OpenProvider(nemuz.ProviderSpec{Provider: "anthropic"})
+agent, _ := nemuz.Open(nemuz.Options{
+    Provider:  provider,
+    Model:     "claude-opus-5",
+    Workspace: ".",
+    Tools:     []nemuz.Tool{myTool{}},
+})
+defer agent.Close()
+
+out, _ := agent.Run(ctx, "what changed in this repo today?")
+err := agent.Replay(ctx, out.TurnID)   // no provider, no network
+```
+
+A tool is one interface:
+
+```go
+func (myTool) Name() string                    { return "now" }
+func (myTool) Description() string             { return "The current time." }
+func (myTool) Schema() json.RawMessage         { return json.RawMessage(`{"type":"object"}`) }
+func (myTool) Capabilities() nemuz.Capabilities { return nemuz.Capabilities{} }
+func (myTool) Run(ctx context.Context, args json.RawMessage) (nemuz.Result, error) { … }
+```
+
 ## Layout
 
 ```
+nemuz.go, types.go   the public API
 cmd/nemuz/          the binary
 internal/agent/     the turn loop
 internal/llm/       provider IR, plus the record and replay seam
@@ -413,8 +445,8 @@ cannot be rebuilt from it.
 - [ ] seccomp filters and network capabilities
 - [ ] Sandbox backends for macOS and Windows
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp
-- [ ] Memory, skills, curator, and the eval gate
 - [ ] OpenAI-compatible HTTP API, ACP, OpenTelemetry
+- [ ] A durable store: full-text search over turns, usage and cost tracking
 
 ## Changelog
 

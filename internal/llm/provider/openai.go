@@ -60,11 +60,11 @@ func NewOpenAI(label string, cfg Config) *OpenAI {
 func (p *OpenAI) Name() string { return p.label }
 
 type oaiMessage struct {
-	Role       string          `json:"role"`
-	Content    string          `json:"content,omitempty"`
-	ToolCalls  []oaiToolCall   `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	Name       string          `json:"name,omitempty"`
+	Role       string        `json:"role"`
+	Content    string        `json:"content,omitempty"`
+	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+	Name       string        `json:"name,omitempty"`
 }
 
 type oaiToolCall struct {

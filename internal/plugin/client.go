@@ -70,8 +70,9 @@ type Client struct {
 	readErr   chan error
 	exited    chan struct{}
 
-	stderrMu sync.Mutex
-	stderr   []string
+	stderrMu   sync.Mutex
+	stderr     []string
+	stderrDone chan struct{}
 
 	closeOnce sync.Once
 	closeErr  error
@@ -108,16 +109,30 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 	}
 
 	c := &Client{
-		opts:      opts,
-		cmd:       cmd,
-		stdin:     stdin,
-		responses: make(chan Response, 1),
-		readErr:   make(chan error, 1),
-		exited:    make(chan struct{}),
+		opts:       opts,
+		cmd:        cmd,
+		stdin:      stdin,
+		responses:  make(chan Response, 1),
+		readErr:    make(chan error, 1),
+		exited:     make(chan struct{}),
+		stderrDone: make(chan struct{}),
 	}
-	go c.readLoop(stdout)
-	go c.drainStderr(stderr)
+	// Wait must not run until both pipes are drained: it closes them, and a
+	// reader still working gets "file already closed" instead of the plugin's
+	// last words. That is exactly when those words matter most, because a
+	// plugin that dies during startup has usually just explained why.
+	var readers sync.WaitGroup
+	readers.Add(2)
 	go func() {
+		defer readers.Done()
+		c.readLoop(stdout)
+	}()
+	go func() {
+		defer readers.Done()
+		c.drainStderr(stderr)
+	}()
+	go func() {
+		readers.Wait()
 		_ = cmd.Wait()
 		close(c.exited)
 	}()
@@ -259,6 +274,7 @@ func (c *Client) failRead(err error) {
 // drainStderr keeps the plugin's last words for diagnostics. Without this a
 // crashed plugin produces a bare EOF and no explanation.
 func (c *Client) drainStderr(stderr io.Reader) {
+	defer close(c.stderrDone)
 	sc := bufio.NewScanner(stderr)
 	sc.Buffer(make([]byte, 0, 8<<10), 1<<20)
 	for sc.Scan() {
@@ -272,7 +288,18 @@ func (c *Client) drainStderr(stderr io.Reader) {
 }
 
 // stderrTail renders recent plugin stderr for an error message.
+//
+// A plugin that dies on startup loses the race between its own exit and this
+// process reading what it said, so the write to its stdin fails with a broken
+// pipe and the useful message — the plugin's own — has not arrived yet. Waiting
+// briefly for the drain to finish is the difference between a report an
+// operator can act on and one that only says the pipe closed.
 func (c *Client) stderrTail() string {
+	select {
+	case <-c.stderrDone:
+	case <-time.After(diagnosticsGrace):
+	}
+
 	c.stderrMu.Lock()
 	defer c.stderrMu.Unlock()
 	if len(c.stderr) == 0 {
@@ -280,6 +307,11 @@ func (c *Client) stderrTail() string {
 	}
 	return "\nplugin stderr:\n  " + strings.Join(c.stderr, "\n  ")
 }
+
+// diagnosticsGrace is how long an error report waits for a dying plugin to
+// finish saying why. Short enough not to be felt, long enough to catch a
+// process that exits immediately.
+const diagnosticsGrace = 2 * time.Second
 
 // Close shuts the plugin down, politely first.
 func (c *Client) Close() error {

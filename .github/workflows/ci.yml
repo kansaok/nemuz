@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27"
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet and size budget
+        run: make lint
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Build
+        run: make build
+
+      - name: Size and startup budgets
+        run: make bench
+
+  offline:
+    name: Tests need no network
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      # Everything the tests need must already be on disk, because the next
+      # step takes the network away.
+      - name: Warm the module and build caches
+        run: |
+          go mod download
+          go build ./...
+          go test -count=1 -run XXX_NONE ./... > /dev/null
+
+      # nemuz claims its whole suite runs without touching the network: every
+      # provider test uses httptest, and every replay reads a recording. This
+      # job is what makes that a fact rather than an intention. Loopback stays
+      # up, so httptest servers still work; everything else is refused.
+      - name: Cut outbound network
+        run: |
+          sudo iptables  -I OUTPUT ! -o lo -j REJECT
+          sudo ip6tables -I OUTPUT ! -o lo -j REJECT || true
+
+      - name: Confirm the network really is gone
+        run: |
+          if timeout 5 curl -sSf https://proxy.golang.org > /dev/null 2>&1; then
+            echo "outbound traffic still works; this job would prove nothing"
+            exit 1
+          fi
+          echo "outbound traffic is blocked"
+
+      - name: Test with no network
+        run: go test -count=1 ./...
+
+  sandbox:
+    name: Sandbox is enforced
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Build
+        run: make build
+
+      # doctor spawns the tool worker and has it attempt a read outside its
+      # workspace. A build that computes the right capability grants and never
+      # applies them passes every other job and fails this one.
+      - name: Verify tool confinement
+        run: |
+          ./bin/nemuz doctor
+          ./bin/nemuz doctor | grep -q "sandbox    verified" || {
+            echo "doctor did not verify tool confinement"
+            exit 1
+          }

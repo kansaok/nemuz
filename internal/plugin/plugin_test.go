@@ -288,8 +288,8 @@ func TestCrashedPluginReportsItsStderr(t *testing.T) {
 
 func TestNonJSONOutputIsRejected(t *testing.T) {
 	_, err := Start(context.Background(), Options{
-		Command:      []string{"sh", "-c", "echo 'bukan json'; sleep 5"},
-		StartTimeout: 3 * time.Second,
+		Command:      []string{"sh", "-c", "echo 'bukan json'; cat > /dev/null"},
+		StartTimeout: 20 * time.Second,
 	})
 	if err == nil {
 		t.Fatal("a plugin writing garbage to stdout was accepted")
@@ -334,9 +334,13 @@ func TestPluginEnvironmentIsEmptyByDefault(t *testing.T) {
 		`"tools":[{"name":"noop","description":"","schema":{"type":"object"},"capabilities":{}}]}}`
 
 	c, err := Start(context.Background(), Options{
-		Command:      []string{"/bin/sh", "-c", "env > \"$DUMP\"; echo '" + manifestLine + "'; sleep 5", "sh"},
+		// The probe blocks on stdin rather than sleeping. A sleeping probe
+		// races the handshake timeout: under load it exits at the moment the
+		// host gives up, and the test fails for reasons unrelated to what it
+		// is checking.
+		Command:      []string{"/bin/sh", "-c", "env > \"$DUMP\"; echo '" + manifestLine + "'; cat > /dev/null", "sh"},
 		Env:          []string{"DUMP=" + dump, "NEMUZ_SECRET_FOR_TEST_SHOULD_NOT_APPEAR=1"},
-		StartTimeout: 5 * time.Second,
+		StartTimeout: 20 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("probe plugin did not start: %v", err)
