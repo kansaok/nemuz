@@ -150,6 +150,11 @@ func runCmd() *cobra.Command {
 			}
 			fmt.Fprintf(out, "\nreplay with: nemuz replay %s --workspace %s\n", turnID, workspace)
 
+			// The index is what makes `nemuz search` and `nemuz usage` work.
+			// It is derived from the journal, so this is a convenience rather
+			// than a commitment: `nemuz index rebuild` restores it exactly.
+			indexTurn(cmd, turnID)
+
 			// Recall is only useful if it improves over time, which means
 			// noting which memories actually got used.
 			if len(recalled) > 0 {
@@ -170,6 +175,7 @@ func runCmd() *cobra.Command {
 					blobs:      bs,
 				})
 				reportReview(cmd, result, reviewErr)
+				indexTurn(cmd, result.TurnID)
 			}
 			if doCurate {
 				curateIfDue(cmd, ts)

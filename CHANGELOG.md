@@ -13,6 +13,57 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.9.0] — 2026-09-08
+
+Your own history, searchable.
+
+### Added
+
+- **`nemuz search`** — full-text search over every question and answer ever
+  recorded, backed by SQLite FTS5. Words are treated literally rather than as an
+  FTS5 expression: someone searching their history is asking a question, not
+  writing a query language, and `what's the deploy script?` should find things
+  rather than fail to parse. The agent's own background reviews are excluded
+  unless `--reviews` is passed, since every reviewed turn has a review quoting
+  it back.
+- **`nemuz usage`** — tokens by model and tool, with background reviews counted
+  separately because those are nemuz spending on its own behalf rather than work
+  anyone asked for.
+
+  Tokens only, no money. A bill needs a price list, and nemuz ships none:
+  prices change without notice, and a confident figure from a stale table is
+  worse than no figure. This is a deliberate omission, not an oversight.
+- **`nemuz index rebuild` and `nemuz index status`.** The index is derived and
+  never authoritative — it holds nothing the journal does not — so the answer to
+  a corrupt or missing database is to rebuild it. Nothing is lost, there is no
+  migration, and an unreadable journal is skipped and named rather than aborting
+  the whole rebuild.
+- Turns are indexed as they finish. An indexing failure is reported and dropped,
+  because the journal already has the turn and the user was waiting for an
+  answer, not for bookkeeping.
+- `config.Paths.DB` finally points at something. It has been a dead field since
+  0.1.0, named for a database that did not exist.
+
+### Changed
+
+- **The binary is 13 MB, up from 3.2 MB.** Almost all of that is SQLite, which
+  arrives through `modernc.org/sqlite` — a pure-Go translation rather than a
+  cgo binding, so the static cgo-free binary survives. That trade is worth
+  naming: a quarter of the size claim was spent on this one feature. It stays
+  well inside the 40 MB budget, and against Hermes Agent's 2.68 GB image the
+  comparison is not close, but a reader deserves the number rather than a
+  reassurance.
+
+  A side effect worth noting: this gets SQLite 3.53.4 with FTS5 and no cgo,
+  which is the version Hermes has to compile from source at image build time.
+
+### Fixed
+
+- **A schema older than the current one was kept rather than rebuilt.** Version
+  0 was treated as "fresh database", but it also means one written before the
+  schema was versioned. Any version that is not current is now dropped and
+  rebuilt, which is safe precisely because the index is derived.
+
 ## [0.8.0] — 2026-09-08
 
 Installable, and observable.
@@ -334,7 +385,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/kansaok/nemuz/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kansaok/nemuz/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kansaok/nemuz/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kansaok/nemuz/compare/v0.5.1...v0.6.0

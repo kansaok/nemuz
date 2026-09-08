@@ -191,3 +191,21 @@ func verifyTurn(t journal.Turn, bs *blob.Store) error {
 	}
 	return nil
 }
+
+// countJournals reports how many turns are recorded on disk.
+func countJournals(dir string) (int, error) {
+	turns, err := journal.List(dir)
+	if err != nil {
+		return 0, err
+	}
+	return len(turns), nil
+}
+
+// journalPath resolves a turn id to its journal file.
+func journalPath(dir, turnID string) (string, error) {
+	turn, err := journal.Find(dir, turnID)
+	if err != nil {
+		return "", err
+	}
+	return turn.Path, nil
+}

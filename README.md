@@ -68,7 +68,7 @@ differ in timing, and that must not count as a difference.
 
 | | |
 |---|---|
-| **Single static binary** | No CGO, no runtime, no container required. Currently 3.5 MB. |
+| **Single static binary** | No CGO, no runtime, no container required. Currently 13 MB, most of it SQLite. |
 | **Non-root always** | Tool confinement uses Landlock and seccomp, which need no privilege. |
 | **Capabilities, not guards** | A tool declares the paths and hosts it needs; the kernel refuses the rest. |
 | **No file over 800 lines** | Enforced in CI. Large files cannot be reviewed, unit-tested, or merged cleanly. |
@@ -285,6 +285,51 @@ skill, or delete anything.
 The judgement it does *not* make is consolidating two overlapping skills into
 one. That needs a model, and it is a real gap — the checks above are the ones
 that can be made from evidence already on disk.
+
+## Searching your own history
+
+Every turn is journaled, so every turn is searchable.
+
+```
+$ nemuz search deploy staging
+01M20QRSATF6MSH6R987Z34785  2026-09-08 21:46  claude-opus-5
+  bagaimana cara «deploy» ke «staging»?
+  replay: nemuz replay 01M20QRSATF6MSH6R987Z34785
+```
+
+Words are taken literally rather than as an FTS5 expression, so an ordinary
+question with an apostrophe or a hyphen finds things instead of failing to
+parse. The agent's own background reviews are excluded unless you ask for them:
+every reviewed turn has a review quoting it back, and including both would
+double the results while adding nothing.
+
+```
+$ nemuz usage --days 30
+last 30 days · 142 turns (61 were background reviews) · 3 failed
+1.9M in / 84.2k out · 1.1M of the input was cached
+
+MODEL          TURNS  INPUT  OUTPUT  CACHED
+claude-opus-5  81     1.6M   71.0k   980.1k
+claude-haiku   61     286k   13.2k   140.3k
+
+TOOL        CALLS  FAILED
+read_file   204    3
+list_dir    97     0
+```
+
+Tokens, not money. Turning tokens into a bill needs a price list, and nemuz
+ships none: prices change without notice, and a confident figure computed from a
+stale table is worse than no figure at all.
+
+**The index is derived, never authoritative.** It holds nothing the journal does
+not, so the answer to a corrupt or missing database is `nemuz index rebuild` —
+no backup, no migration, nothing lost. `nemuz index status` says whether it has
+fallen behind.
+
+That is also why SQLite arrives through `modernc.org/sqlite`, a pure-Go
+translation rather than a binding: the static cgo-free binary is worth more than
+the megabytes it costs. It happens to ship SQLite 3.53.4 with FTS5 — the version
+Hermes Agent has to compile from source at image build time to get.
 
 ## Providers
 
@@ -514,6 +559,7 @@ internal/curator/   re-verification, retirement, quarantine expiry
 internal/httpapi/   the OpenAI-compatible server
 internal/acp/       the Agent Client Protocol server
 internal/metrics/   Prometheus exposition, written by hand rather than imported
+internal/index/     SQLite index over the journal: search and usage
 internal/sandbox/   Landlock enforcement
 internal/config/    where state lives
 bench/              size, startup, and file-length budgets, enforced by make
@@ -526,7 +572,7 @@ examples/           reference plugins in Go and JavaScript
 State lives under `~/.nemuz`, or `NEMUZ_HOME` if set.
 
 ```
-state.db                  indexes and operational state
+state.db                  the search index, rebuildable from the journal
 journal/<turn>.jsonl      append-only records — greppable, rsync-friendly
 blobs/<ab>/<sha256>       large payloads, deduplicated
 skills/<name>/SKILL.md    a learned skill: YAML frontmatter plus Markdown
@@ -559,7 +605,7 @@ cannot be rebuilt from it.
 - [x] Agent Client Protocol v1, for Zed and other editors
 - [x] A Prometheus endpoint, and multi-platform releases with checksums and an SBOM
 - [ ] OpenTelemetry traces — deferred: the SDK would cost more than the whole binary
-- [ ] A durable store: full-text search over turns, usage and cost tracking
+- [x] Full-text search over every turn, and usage accounting
 
 ## Changelog
 
