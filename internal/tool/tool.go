@@ -146,6 +146,16 @@ func (r *Registry) Names() []string {
 	return out
 }
 
+// Tools returns the registered tools in registration order, for callers that
+// need to hand them somewhere else rather than invoke them here.
+func (r *Registry) Tools() []Tool {
+	out := make([]Tool, 0, len(r.order))
+	for _, name := range r.order {
+		out = append(out, r.byName[name])
+	}
+	return out
+}
+
 // Defs renders the registry as tool definitions for a model request.
 func (r *Registry) Defs() []llm.ToolDef {
 	defs := make([]llm.ToolDef, 0, len(r.order))

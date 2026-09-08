@@ -10,8 +10,8 @@ trusted.
 
 > Status: early. The turn loop, provider adapters, tool plugins, memory,
 > background review, learned skills with an eval gate and a curator, journal,
-> replay, and the Landlock sandbox work and are tested end to end. Chat channels
-> are not built yet.
+> replay, the Landlock sandbox, an OpenAI-compatible HTTP API and ACP all work
+> and are tested end to end. Chat channels are not built yet.
 
 ## Why
 
@@ -391,6 +391,48 @@ has it try to read a file outside its workspace:
 A build that computed the right grants and never applied them would pass every
 other check and fail this one.
 
+## Talking to it
+
+### From anything that speaks OpenAI
+
+```bash
+nemuz serve --provider anthropic
+```
+
+```bash
+curl -s http://127.0.0.1:8642/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"what changed today?"}]}'
+```
+
+Point an existing client's base URL at `http://127.0.0.1:8642/v1` and it works
+unchanged. `stream: true` is supported, though the answer is produced whole and
+sent as one chunk — `/health/detailed` says so rather than letting anyone infer
+a streaming pipeline that does not exist.
+
+**The completion id is the turn id.** An answer that looks wrong goes straight
+to `nemuz replay <id>`, with no provider and no network. No other
+OpenAI-compatible endpoint offers that, because no other one records the turn.
+
+The server binds to loopback by default and refuses to listen anywhere else
+without `NEMUZ_API_KEY`. An agent endpoint with no key is a remote shell with
+extra steps.
+
+### From an editor
+
+```bash
+nemuz acp --provider anthropic
+```
+
+nemuz speaks the [Agent Client Protocol](https://agentclientprotocol.com) v1 on
+stdio, so Zed and other ACP clients can drive it directly. The message shapes
+follow the published schema rather than guesswork.
+
+Editors get more than the answer: the tool calls the turn actually made are
+reported as `tool_call` updates, read back from the journal in the order they
+happened. A session opened for a directory the agent is not bound to is refused,
+because answering confidently about the wrong project is worse than saying no.
+
 ## Using nemuz as a library
 
 The root package is the API. Everything under `internal/` is not, and changes
@@ -451,6 +493,8 @@ internal/skill/     learned skills, lifecycle invariants, the eval gate
 internal/memory/    remembered facts and deterministic recall
 internal/review/    the post-turn review, and its two-tool registry
 internal/curator/   re-verification, retirement, quarantine expiry
+internal/httpapi/   the OpenAI-compatible server
+internal/acp/       the Agent Client Protocol server
 internal/sandbox/   Landlock enforcement
 internal/config/    where state lives
 bench/              size, startup, and file-length budgets, enforced by make
@@ -492,7 +536,9 @@ cannot be rebuilt from it.
 - [ ] seccomp filters and network capabilities
 - [ ] Sandbox backends for macOS and Windows
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp
-- [ ] OpenAI-compatible HTTP API, ACP, OpenTelemetry
+- [x] OpenAI-compatible HTTP API, with replayable completion ids
+- [x] Agent Client Protocol v1, for Zed and other editors
+- [ ] OpenTelemetry and a Prometheus endpoint
 - [ ] A durable store: full-text search over turns, usage and cost tracking
 
 ## Changelog

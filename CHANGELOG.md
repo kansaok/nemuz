@@ -13,6 +13,47 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.7.0] — 2026-09-08
+
+Two ways in: any OpenAI client, and any ACP editor.
+
+### Added
+
+- **`nemuz serve`** — an OpenAI-compatible HTTP API. Point an existing client's
+  base URL at it and nothing else changes. `stream: true` is supported, though
+  the answer is produced whole and sent as one chunk; `/health/detailed` says so
+  rather than implying a streaming pipeline that does not exist.
+
+  **The completion id is the turn id**, so an answer that looks wrong goes
+  straight to `nemuz replay`. No other OpenAI-shaped endpoint can offer that,
+  because no other one records the turn.
+
+  The server binds to loopback by default and *refuses to start* on any other
+  address without `NEMUZ_API_KEY`. An agent endpoint with no key is a remote
+  shell with extra steps, and that should be impossible to reach by accident
+  rather than merely discouraged.
+- **`nemuz acp`** — the Agent Client Protocol v1 over stdio, so Zed and other
+  ACP editors can drive nemuz directly. Method names and message bodies follow
+  the published v1 schema, which was fetched and read rather than recalled.
+
+  Editors get more than the final answer: the tool calls the turn actually made
+  are reported as `tool_call` updates, read back from the journal in the order
+  they happened. A session opened for a directory the agent is not bound to is
+  refused, because answering confidently about the wrong project is worse than
+  refusing.
+- **`Registry.Tools`**, so a caller can hand a built toolset somewhere else.
+
+Both servers are built on the public API rather than on internals, which is the
+most convincing check that the public API is actually complete.
+
+### Fixed
+
+- **ACP cancellation could never arrive.** Prompts ran on the read loop, so the
+  loop was sitting inside the very prompt whose cancellation it was supposed to
+  read. Prompts now run on their own goroutine; everything else stays inline,
+  where ordering is free. The test that caught this hung rather than failed,
+  which is its own kind of useful.
+
 ## [0.6.0] — 2026-09-08
 
 ### Added
@@ -255,7 +296,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/kansaok/nemuz/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kansaok/nemuz/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/kansaok/nemuz/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kansaok/nemuz/compare/v0.4.0...v0.5.0
