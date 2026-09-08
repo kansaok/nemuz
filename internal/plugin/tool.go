@@ -90,6 +90,17 @@ func allowed(want string, list []string) bool {
 // "search" cannot collide, and so an operator reading a journal can see which
 // plugin ran.
 func (c *Client) Tools(policy Policy) ([]tool.Tool, error) {
+	return c.ToolsAs(policy, c.manifest.Name)
+}
+
+// ToolsAs is Tools with an explicit namespace. An empty namespace leaves tool
+// names untouched.
+//
+// The only caller that should pass an empty namespace is nemuz spawning its own
+// sandboxed tool worker: those tools are the built-in ones, and renaming them
+// would change every prompt, every recording, and every eval scenario that
+// mentions them.
+func (c *Client) ToolsAs(policy Policy, namespace string) ([]tool.Tool, error) {
 	if policy == nil {
 		return nil, fmt.Errorf("plugin %s: no policy given; capabilities must be reviewed", c.manifest.Name)
 	}
@@ -103,7 +114,7 @@ func (c *Client) Tools(policy Policy) ([]tool.Tool, error) {
 			client:  c,
 			spec:    spec,
 			granted: granted,
-			name:    qualify(c.manifest.Name, spec.Name),
+			name:    qualify(namespace, spec.Name),
 		})
 	}
 	return out, nil

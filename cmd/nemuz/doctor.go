@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"runtime"
+	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/kansaok/nemuz/internal/config"
 	"github.com/kansaok/nemuz/internal/sandbox"
@@ -39,10 +44,23 @@ func runDoctor(out io.Writer) error {
 
 	// Sandboxing is the one check whose failure changes what nemuz will do,
 	// so it reports the ABI version rather than a bare yes.
-	if abi, err := sandbox.LandlockABI(); err == nil {
-		checks = append(checks, check{"sandbox", "ok", fmt.Sprintf("Landlock ABI v%d — tool confinement enforced by the kernel", abi)})
+	abi, abiErr := sandbox.LandlockABI()
+	if abiErr == nil {
+		checks = append(checks, check{"kernel", "ok", fmt.Sprintf("Landlock ABI v%d available", abi)})
 	} else {
-		checks = append(checks, check{"sandbox", "warn", fmt.Sprintf("%v — tools would run unconfined", err)})
+		checks = append(checks, check{"kernel", "warn", fmt.Sprintf("%v — tools will run unconfined", abiErr)})
+	}
+
+	// Support is not the same as enforcement. This actually spawns the tool
+	// worker and has it try to read a file outside its workspace, because a
+	// build that computes the right grants and never applies them would pass
+	// every check above while confining nothing.
+	if abiErr == nil {
+		if err := probeConfinement(); err != nil {
+			checks = append(checks, check{"sandbox", "fail", err.Error()})
+		} else {
+			checks = append(checks, check{"sandbox", "ok", "verified — the tool worker cannot read outside its workspace"})
+		}
 	}
 
 	paths, err := config.Resolve()
@@ -88,4 +106,43 @@ func symbol(status string) string {
 	default:
 		return " FAIL "
 	}
+}
+
+// probeConfinement spawns the sandboxed tool worker and confirms the kernel
+// refuses it a file outside its workspace.
+func probeConfinement() error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("could not locate nemuz: %w", err)
+	}
+	dir, err := os.MkdirTemp("", "nemuz-probe-*")
+	if err != nil {
+		return fmt.Errorf("could not create a probe workspace: %w", err)
+	}
+	defer os.RemoveAll(dir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// /etc/hostname is world-readable and present everywhere Landlock is, so a
+	// refusal can only come from the sandbox.
+	const outside = "/etc/hostname"
+	cmd := exec.CommandContext(ctx, self, "tool-worker", "--workspace", dir, "--self-check", outside)
+	cmd.Env = []string{}
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("the confinement probe did not run: %w", err)
+	}
+
+	var result selfCheckResult
+	if err := json.Unmarshal(out, &result); err != nil {
+		return fmt.Errorf("the confinement probe returned %q", strings.TrimSpace(string(out)))
+	}
+	if !result.Denied {
+		if result.Error != "" {
+			return fmt.Errorf("the worker was not confined: reading %s failed with %q, which is not a permission denial", outside, result.Error)
+		}
+		return fmt.Errorf("NOT CONFINED — the worker read %s despite the sandbox", outside)
+	}
+	return nil
 }

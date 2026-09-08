@@ -1,0 +1,107 @@
+# Changelog
+
+All notable changes to nemuz are recorded here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
+versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+**Before 1.0, minor versions may break things.** The journal format, the plugin
+protocol, and the skill file layout are all still settling. Breaking changes are
+listed under **Changed** with what to do about them.
+
+## [Unreleased]
+
+Nothing yet.
+
+## [0.2.0] — 2026-09-08
+
+The sandbox stops being a claim and becomes a fact.
+
+### Added
+
+- **Sandboxed tool worker.** The built-in tools now run in a separate process
+  (`nemuz tool-worker`) that applies Landlock to itself before serving anything,
+  over the same JSON-RPC protocol plugins use. Landlock is a thread credential,
+  so confining tool execution requires a process whose whole job is to be
+  confined — and it cannot be the gateway, which needs the journal, the config,
+  and the network the tools must not have.
+- **`--sandbox` flag** on `run`, `replay`, `skill eval` and `skill certify`,
+  with modes `on` (require confinement), `auto` (confine where possible, say so
+  when not) and `off` (explicit, and recorded).
+- **`nemuz doctor` now verifies confinement** instead of reporting kernel
+  support. It spawns the worker and has it attempt a read outside its workspace,
+  so a build that computes the right grants and never applies them fails here
+  and passes nowhere else.
+- **`plugin.Server`** — the serving half of the plugin protocol, so nemuz can
+  speak it to itself. Go plugin authors can use it directly.
+- **`Client.ToolsAs`** — register a plugin's tools under a chosen namespace, or
+  none. Used so the built-in tools keep their canonical names when routed
+  through the protocol.
+- **`Agent.Environment`** — string pairs recorded in `turn.start`, currently
+  carrying which sandbox applied. Values must be identical across runs of a turn
+  or the journal digest would change.
+- 8 tests covering the wiring, including one that confirms an *unsandboxed*
+  worker is *not* refused — without it, a probe that always reported "denied"
+  would look identical to one that worked.
+
+### Changed
+
+- `run`, `replay` and the eval gate now share one toolset builder, replacing
+  three copies of the same registration code.
+- `turn.start` gained an optional `env` field. Turns recorded by 0.1.0 replay
+  normally; turns recorded by 0.2.0 will not strict-replay under 0.1.0.
+
+### Fixed
+
+- **The sandbox was never applied.** 0.1.0 implemented and tested
+  `sandbox.Restrict`, and computed the capability union of the registered tools,
+  but nothing on the production path called either. Tool confinement rested
+  entirely on the workspace guard in Go. This was noted in the 0.1.0 commit
+  message and is now closed.
+
+## [0.1.0] — 2026-09-08
+
+First working version: a journal, a replay engine, and the pieces that hang off
+them.
+
+### Added
+
+- **Journal and replay.** Every turn is written to an append-only JSONL file
+  before anything observes it. A recorded turn replays against its recording and
+  produces an identical digest. The digest deliberately excludes wall-clock time,
+  because two runs of the same turn differ in timing and that must not count as
+  a difference.
+- **Content-addressed blob store.** Payloads over 4 KiB are stored by SHA-256
+  and referenced by hash, so the journal stays readable and identical content
+  costs nothing twice.
+- **Turn loop** with a tool registry, capability declarations, step limits, and
+  filesystem tools confined to a workspace.
+- **Three provider wire formats covering thirteen vendors.** Anthropic and
+  Gemini get real adapters because they genuinely differ; anything speaking the
+  OpenAI shape is one line in a table. Gemini issues no tool-call ids, so the
+  adapter synthesises stable ones — a random id would change the journal digest
+  on every replay.
+- **Tool plugins as separate processes** over newline-delimited JSON-RPC, with a
+  TypeScript SDK and reference plugins in Go and JavaScript. A plugin's declared
+  capabilities are a request; the host decides what is granted.
+- **Learned skills with an eval gate.** Agent-written skills start in quarantine
+  and reach active only by passing recorded scenarios, which replay for free.
+  Nothing is ever deleted: archiving is reversible, and restoring returns a skill
+  to quarantine rather than to service.
+- **Landlock enforcement**, with tests confirming the kernel — not a check in Go
+  — refuses an ungranted path.
+- CLI: `run`, `replay`, `journal`, `plugin`, `skill`, `providers`, `doctor`.
+- Size, startup, and file-length budgets enforced by `make`.
+
+### Known limitations
+
+- No memory, no idle curator, and no background review, so skills must still be
+  written by hand. The gate that proves them works; the machinery that produces
+  them does not exist yet.
+- No chat channels.
+- No HTTP API, no ACP, no seccomp, no CI.
+- Linux only. Landlock has no equivalent on macOS or Windows yet.
+
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kansaok/nemuz/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/kansaok/nemuz/releases/tag/v0.1.0

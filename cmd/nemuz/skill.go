@@ -12,9 +12,7 @@ import (
 	"github.com/kansaok/nemuz/internal/agent"
 	"github.com/kansaok/nemuz/internal/blob"
 	"github.com/kansaok/nemuz/internal/config"
-	"github.com/kansaok/nemuz/internal/plugin"
 	"github.com/kansaok/nemuz/internal/skill"
-	"github.com/kansaok/nemuz/internal/tool"
 	"github.com/spf13/cobra"
 )
 
@@ -184,6 +182,7 @@ func skillEvalCmd(promote bool) *cobra.Command {
 	var pluginCmds []string
 	var allowNet []string
 	var allowExec []string
+	var sandboxMode string
 
 	use, short := "eval <name>", "Run a skill's scenarios and report, without promoting it"
 	if promote {
@@ -206,6 +205,7 @@ func skillEvalCmd(promote bool) *cobra.Command {
 				pluginCmds:   pluginCmds,
 				allowNet:     allowNet,
 				allowExec:    allowExec,
+				sandbox:      sandboxMode,
 			})
 			if err != nil {
 				return err
@@ -238,6 +238,7 @@ func skillEvalCmd(promote bool) *cobra.Command {
 	c.Flags().StringArrayVar(&pluginCmds, "plugin", nil, "plugin the skill depends on; repeatable")
 	c.Flags().StringArrayVar(&allowNet, "allow-net", nil, "network destination a plugin may reach; repeatable")
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program a plugin may run; repeatable")
+	c.Flags().StringVar(&sandboxMode, "sandbox", string(SandboxAuto), "confine the built-in tools: on, auto, or off")
 	return c
 }
 
@@ -248,6 +249,7 @@ type gateOptions struct {
 	pluginCmds   []string
 	allowNet     []string
 	allowExec    []string
+	sandbox      string
 }
 
 // buildGate assembles a gate and returns a cleanup for the plugins it started.
@@ -269,48 +271,24 @@ func buildGate(ctx context.Context, opts gateOptions) (*skill.Gate, func(), erro
 	if err != nil {
 		return nil, noop, err
 	}
-	ws, err := tool.NewWorkspace(opts.workspace)
+	ts, err := buildToolset(ctx, toolsetOptions{
+		Workspace:  opts.workspace,
+		Sandbox:    SandboxMode(opts.sandbox),
+		PluginCmds: opts.pluginCmds,
+		AllowNet:   opts.allowNet,
+		AllowExec:  opts.allowExec,
+	})
 	if err != nil {
 		return nil, noop, err
 	}
-	tools := tool.NewRegistry()
-	if err := tools.Register(tool.NewReadFile(ws), tool.NewWriteFile(ws), tool.NewListDir(ws)); err != nil {
-		return nil, noop, err
-	}
-
-	var clients []*plugin.Client
-	cleanup := func() {
-		for _, c := range clients {
-			c.Close()
-		}
-	}
-	policy := plugin.WorkspacePolicy{Workspace: ws.Root(), AllowNet: opts.allowNet, AllowExec: opts.allowExec}
-	for _, command := range opts.pluginCmds {
-		client, _, err := startPlugin(ctx, command, ws.Root())
-		if err != nil {
-			cleanup()
-			return nil, noop, err
-		}
-		clients = append(clients, client)
-
-		pluginTools, err := client.Tools(policy)
-		if err != nil {
-			cleanup()
-			return nil, noop, err
-		}
-		if err := tools.Register(pluginTools...); err != nil {
-			cleanup()
-			return nil, noop, err
-		}
-	}
 
 	runner := &agent.ScenarioRunner{
-		Tools:      tools,
+		Tools:      ts.Registry,
 		Blobs:      bs,
 		JournalDir: filepath.Join(paths.Root, "eval-journals"),
 		BaseSystem: defaultSystemPrompt,
 	}
-	return &skill.Gate{Store: store, Run: runner.Run, MinScenarios: opts.minScenarios}, cleanup, nil
+	return &skill.Gate{Store: store, Run: runner.Run, MinScenarios: opts.minScenarios}, ts.Close, nil
 }
 
 func printReport(out io.Writer, name string, report skill.Report, promoted bool) {

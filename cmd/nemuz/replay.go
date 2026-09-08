@@ -11,8 +11,6 @@ import (
 	"github.com/kansaok/nemuz/internal/config"
 	"github.com/kansaok/nemuz/internal/journal"
 	"github.com/kansaok/nemuz/internal/llm"
-	"github.com/kansaok/nemuz/internal/plugin"
-	"github.com/kansaok/nemuz/internal/tool"
 	"github.com/spf13/cobra"
 )
 
@@ -22,6 +20,7 @@ func replayCmd() *cobra.Command {
 	var pluginCmds []string
 	var allowNet []string
 	var allowExec []string
+	var sandboxMode string
 
 	c := &cobra.Command{
 		Use:   "replay <turn>",
@@ -40,6 +39,7 @@ func replayCmd() *cobra.Command {
 				pluginCmds: pluginCmds,
 				allowNet:   allowNet,
 				allowExec:  allowExec,
+				sandbox:    sandboxMode,
 			})
 		},
 	}
@@ -48,6 +48,7 @@ func replayCmd() *cobra.Command {
 	c.Flags().StringArrayVar(&pluginCmds, "plugin", nil, "plugin command the recorded turn used; repeatable")
 	c.Flags().StringArrayVar(&allowNet, "allow-net", nil, "network destination a plugin may reach; repeatable")
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program a plugin may run; repeatable")
+	c.Flags().StringVar(&sandboxMode, "sandbox", string(SandboxAuto), "confine the built-in tools: on, auto, or off")
 	return c
 }
 
@@ -63,13 +64,15 @@ type replayOptions struct {
 	pluginCmds []string
 	allowNet   []string
 	allowExec  []string
+	sandbox    string
 }
 
 // turnStart is the subset of the opening event a replay needs to rebuild the run.
 type turnStart struct {
-	Prompt string `json:"prompt"`
-	Model  string `json:"model"`
-	System string `json:"system"`
+	Prompt string            `json:"prompt"`
+	Model  string            `json:"model"`
+	System string            `json:"system"`
+	Env    map[string]string `json:"env,omitempty"`
 }
 
 func runReplay(cmd *cobra.Command, turnRef string, opts replayOptions) error {
@@ -100,31 +103,17 @@ func runReplay(cmd *cobra.Command, turnRef string, opts replayOptions) error {
 		return err
 	}
 
-	ws, err := tool.NewWorkspace(workspace)
+	ts, err := buildToolset(cmd.Context(), toolsetOptions{
+		Workspace:  workspace,
+		Sandbox:    SandboxMode(opts.sandbox),
+		PluginCmds: opts.pluginCmds,
+		AllowNet:   opts.allowNet,
+		AllowExec:  opts.allowExec,
+	})
 	if err != nil {
 		return err
 	}
-	tools := tool.NewRegistry()
-	if err := tools.Register(tool.NewReadFile(ws), tool.NewWriteFile(ws), tool.NewListDir(ws)); err != nil {
-		return err
-	}
-
-	policy := plugin.WorkspacePolicy{Workspace: ws.Root(), AllowNet: opts.allowNet, AllowExec: opts.allowExec}
-	for _, command := range opts.pluginCmds {
-		client, _, err := startPlugin(cmd.Context(), command, ws.Root())
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-
-		pluginTools, err := client.Tools(policy)
-		if err != nil {
-			return err
-		}
-		if err := tools.Register(pluginTools...); err != nil {
-			return err
-		}
-	}
+	defer ts.Close()
 
 	replayID, err := journal.NewTurnID()
 	if err != nil {
@@ -137,15 +126,16 @@ func runReplay(cmd *cobra.Command, turnRef string, opts replayOptions) error {
 	defer w.Close()
 
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "replaying %s\n  workspace %s\n  model     %s\n  calls     %d\n\n",
-		turn.ID, ws.Root(), start.Model, cassette.Len())
+	fmt.Fprintf(out, "replaying %s\n  workspace %s\n  model     %s\n  sandbox   %s\n  calls     %d\n\n",
+		turn.ID, ts.Workspace, start.Model, ts.Sandbox, cassette.Len())
 
 	a := &agent.Agent{
-		Provider: llm.Replay(cassette, w),
-		Tools:    tools,
-		Journal:  w,
-		Model:    start.Model,
-		System:   start.System,
+		Provider:    llm.Replay(cassette, w),
+		Tools:       ts.Registry,
+		Journal:     w,
+		Model:       start.Model,
+		System:      start.System,
+		Environment: start.Env,
 	}
 	runErr := func() error {
 		_, err := a.Run(context.Background(), start.Prompt)

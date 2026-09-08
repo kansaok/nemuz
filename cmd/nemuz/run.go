@@ -12,8 +12,6 @@ import (
 	"github.com/kansaok/nemuz/internal/journal"
 	"github.com/kansaok/nemuz/internal/llm"
 	"github.com/kansaok/nemuz/internal/llm/provider"
-	"github.com/kansaok/nemuz/internal/plugin"
-	"github.com/kansaok/nemuz/internal/tool"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +32,7 @@ func runCmd() *cobra.Command {
 		allowNet     []string
 		allowExec    []string
 		useSkills    bool
+		sandboxMode  string
 	)
 
 	c := &cobra.Command{
@@ -65,37 +64,18 @@ func runCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ws, err := tool.NewWorkspace(workspace)
+
+			ts, err := buildToolset(cmd.Context(), toolsetOptions{
+				Workspace:  workspace,
+				Sandbox:    SandboxMode(sandboxMode),
+				PluginCmds: pluginCmds,
+				AllowNet:   allowNet,
+				AllowExec:  allowExec,
+			})
 			if err != nil {
 				return err
 			}
-			tools := tool.NewRegistry()
-			if err := tools.Register(tool.NewReadFile(ws), tool.NewWriteFile(ws), tool.NewListDir(ws)); err != nil {
-				return err
-			}
-
-			// Plugins are started before the turn so a misconfigured one fails
-			// here, with a clear message, rather than mid-conversation.
-			policy := plugin.WorkspacePolicy{
-				Workspace: ws.Root(),
-				AllowNet:  allowNet,
-				AllowExec: allowExec,
-			}
-			for _, command := range pluginCmds {
-				client, _, err := startPlugin(cmd.Context(), command, ws.Root())
-				if err != nil {
-					return err
-				}
-				defer client.Close()
-
-				pluginTools, err := client.Tools(policy)
-				if err != nil {
-					return err
-				}
-				if err := tools.Register(pluginTools...); err != nil {
-					return err
-				}
-			}
+			defer ts.Close()
 
 			// Only skills that passed the gate reach the model. Quarantined
 			// ones are stored and inspectable but never offered.
@@ -118,17 +98,18 @@ func runCmd() *cobra.Command {
 			defer w.Close()
 
 			a := &agent.Agent{
-				Provider: llm.Record(p, w),
-				Tools:    tools,
-				Journal:  w,
-				Model:    model,
-				System:   systemPrompt,
-				MaxSteps: maxSteps,
+				Provider:    llm.Record(p, w),
+				Tools:       ts.Registry,
+				Journal:     w,
+				Model:       model,
+				System:      systemPrompt,
+				MaxSteps:    maxSteps,
+				Environment: map[string]string{"sandbox": ts.Sandbox},
 			}
 
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "turn %s · %s · %s\n%d tools: %s\n",
-				turnID, p.Name(), ws.Root(), tools.Len(), strings.Join(tools.Names(), ", "))
+			fmt.Fprintf(out, "turn %s · %s · %s\nsandbox %s · %d tools: %s\n",
+				turnID, p.Name(), ts.Workspace, ts.Sandbox, ts.Registry.Len(), strings.Join(ts.Registry.Names(), ", "))
 			if len(skillNames) > 0 {
 				fmt.Fprintf(out, "%d skills: %s\n", len(skillNames), strings.Join(skillNames, ", "))
 			}
@@ -164,6 +145,7 @@ func runCmd() *cobra.Command {
 	c.Flags().StringArrayVar(&allowNet, "allow-net", nil, "network destination a plugin may reach; repeatable")
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program a plugin may run; repeatable")
 	c.Flags().BoolVar(&useSkills, "skills", true, "include active learned skills in the system prompt")
+	c.Flags().StringVar(&sandboxMode, "sandbox", string(SandboxAuto), "confine the built-in tools: on, auto, or off")
 	return c
 }
 

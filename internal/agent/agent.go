@@ -38,6 +38,14 @@ type Agent struct {
 	System string
 	// MaxSteps bounds the tool loop. Zero means DefaultMaxSteps.
 	MaxSteps int
+	// Environment is recorded in turn.start alongside the prompt: how the
+	// tools were confined, which plugins were loaded, anything an operator
+	// reading the journal later would want to know.
+	//
+	// Values must be identical across runs of the same turn. Anything that
+	// varies — a timestamp, a process id — would change the journal digest
+	// and make the turn look unreplayable when nothing had actually changed.
+	Environment map[string]string
 }
 
 // Outcome summarises a completed turn.
@@ -66,12 +74,16 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 	// turn.start carries everything needed to rebuild the first request. A
 	// replay that cannot reconstruct the system prompt would build a different
 	// request and be rejected — correctly, but unhelpfully.
-	if _, err := a.Journal.Append(journal.KindTurnStart, map[string]any{
+	start := map[string]any{
 		"prompt": prompt,
 		"model":  a.Model,
 		"system": a.System,
 		"tools":  a.Tools.Names(),
-	}); err != nil {
+	}
+	if len(a.Environment) > 0 {
+		start["env"] = a.Environment
+	}
+	if _, err := a.Journal.Append(journal.KindTurnStart, start); err != nil {
 		return out, err
 	}
 

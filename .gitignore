@@ -1,6 +1,15 @@
+# Build output. `go build ./cmd/...` and `go build ./examples/...` drop binaries
+# in the working directory, so the binary names are ignored explicitly as well
+# as the directories we build into on purpose.
 /bin/
 /dist/
+/nemuz
+/plugin-go
+/seed
+
+# Test artefacts
 *.test
 coverage.out
+
+# Local configuration
 .env
-/plugin-go

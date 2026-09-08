@@ -270,9 +270,37 @@ The agent takes the union of its tools' declarations and hands that to the
 sandbox before the model speaks. Nothing can widen it afterwards: Landlock is
 one-way by design, and needs no privilege, which is why nemuz never runs as root.
 
-Landlock is a thread credential, so `Restrict` is meant to be called once, early,
-in a process dedicated to confined work — the tool subprocess or plugin host.
-That is the same process boundary the plugin architecture already needs.
+Landlock is a thread credential, so confining tool execution needs a process
+whose whole job is to be confined. nemuz therefore runs its own built-in tools
+in a subprocess — `nemuz tool-worker` — that applies Landlock to itself before
+serving anything, over the same JSON-RPC protocol the plugins use. Confining the
+gateway instead would confine the journal, the config, and the provider
+connection along with the tools, which is the opposite of useful.
+
+| `--sandbox` | Behaviour |
+|---|---|
+| `auto` (default) | Confine where the kernel allows it; say so plainly when it cannot. |
+| `on` | Require confinement; refuse to run without it. |
+| `off` | Run the tools in-process, unconfined. Recorded in the journal. |
+
+Whichever applied is written into the turn's `turn.start` event, so a recording
+says whether its tools were confined:
+
+```json
+{"env":{"sandbox":"landlock-v1"}, "model":"...", "prompt":"..."}
+```
+
+`nemuz doctor` does not take the kernel's word for it. It spawns the worker and
+has it try to read a file outside its workspace:
+
+```
+  ok    platform   linux/amd64, go1.27.1
+  ok    kernel     Landlock ABI v1 available
+  ok    sandbox    verified — the tool worker cannot read outside its workspace
+```
+
+A build that computed the right grants and never applied them would pass every
+other check and fail this one.
 
 ## Layout
 
@@ -317,11 +345,17 @@ cannot be rebuilt from it.
 - [x] Providers: OpenAI-compatible, Anthropic, Gemini — 13 vendors, retries, typed errors
 - [x] Plugin host over JSON-RPC, capability policy, and the TypeScript SDK
 - [x] Learned skills, lifecycle invariants, and the eval gate
+- [x] Sandboxed tool worker, verified end to end by `nemuz doctor`
 - [ ] Memory, the idle curator, and background review after each turn
 - [ ] seccomp filters and network capabilities
+- [ ] Sandbox backends for macOS and Windows
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp
 - [ ] Memory, skills, curator, and the eval gate
 - [ ] OpenAI-compatible HTTP API, ACP, OpenTelemetry
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md). Before 1.0, minor versions may break things.
 
 ## License
 
