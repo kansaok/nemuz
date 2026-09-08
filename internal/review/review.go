@@ -32,6 +32,8 @@ Save a memory only for a fact that will still be true next week: where something
 
 Draft a skill only for a procedure you would expect to be needed again, and only if it is specific enough to follow. A draft is a proposal: it is quarantined and must pass eval scenarios before anyone can use it.
 
+Write memories in the same language the user was writing in. Recall matches on the words themselves, so a fact stored in a different language than the questions will be asked in is a fact that will never be found again.
+
 Most turns are worth nothing. Saving nothing is the normal outcome and the correct one when nothing new was learned. Never save something merely to have saved something.
 
 When you are done, answer in one short sentence saying what you kept, or that you kept nothing.`

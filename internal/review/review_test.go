@@ -375,3 +375,16 @@ func TestReviewerRefusesIncompleteConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// TestReviewerIsToldToMatchTheUsersLanguage guards a failure found only by
+// running against a real model: the user asked in Indonesian, the reviewer
+// wrote the memory in English, and recall — which matches on words — never
+// found it again. The fact was stored correctly and was useless.
+func TestReviewerIsToldToMatchTheUsersLanguage(t *testing.T) {
+	if !strings.Contains(SystemPrompt, "same language") {
+		t.Fatal("the reviewer is not told to write memories in the user's language")
+	}
+	if !strings.Contains(SystemPrompt, "never be found again") {
+		t.Error("the instruction does not say why it matters, so a model may weigh it lightly")
+	}
+}

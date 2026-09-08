@@ -13,6 +13,28 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.9.2] — 2026-09-08
+
+### Fixed
+
+- **Memories were written in the wrong language and then never found again.**
+  The reviewer wrote a fact in English about a conversation held in Indonesian.
+  It stored correctly, it was accurate, and recall — which matches on the words
+  themselves — never returned it, because the two shared no terms. The agent
+  learned something and could not use it.
+
+  The reviewer is now told to write in the language the user was writing in, and
+  told why: a fact stored in a language the questions will not be asked in is a
+  fact that will never be found again.
+
+  Every test in this repository ran against a scripted model that spoke one
+  language on both sides, so nothing here could have caught it. It appeared
+  within minutes of the first run against a real provider, which is the argument
+  for doing that at all.
+
+  A deeper fix is embeddings, so recall matches meaning rather than words. That
+  remains future work; this one costs nothing and closes the common case.
+
 ## [0.9.1] — 2026-09-08
 
 ### Fixed
@@ -413,7 +435,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/kansaok/nemuz/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/kansaok/nemuz/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kansaok/nemuz/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kansaok/nemuz/compare/v0.7.0...v0.8.0
