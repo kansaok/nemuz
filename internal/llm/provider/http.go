@@ -241,6 +241,21 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// firstJSONField returns the first of several paths that yields a string.
+//
+// Providers agree on the OpenAI shape until they do not. Gateways in particular
+// tend to answer with a flat {"message": "..."} instead of the nested
+// {"error": {"message": "..."}}, and falling back to dumping the raw body turns
+// a clear refusal into noise the operator has to read JSON to understand.
+func firstJSONField(body []byte, paths ...[]string) string {
+	for _, path := range paths {
+		if v := jsonErrorField(body, path...); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // jsonErrorField pulls a nested string out of a provider's error body, which is
 // how most of them report a code and a message.
 func jsonErrorField(body []byte, path ...string) string {

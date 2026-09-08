@@ -52,7 +52,8 @@ func NewAnthropic(cfg Config) *Anthropic {
 			name: "anthropic",
 			cfg:  cfg,
 			decodeError: func(body []byte) (string, string) {
-				return jsonErrorField(body, "error", "type"), jsonErrorField(body, "error", "message")
+				return firstJSONField(body, []string{"error", "type"}, []string{"type"}),
+					firstJSONField(body, []string{"error", "message"}, []string{"message"})
 			},
 		},
 	}

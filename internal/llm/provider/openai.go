@@ -50,7 +50,8 @@ func NewOpenAI(label string, cfg Config) *OpenAI {
 			name: label,
 			cfg:  cfg,
 			decodeError: func(body []byte) (string, string) {
-				return jsonErrorField(body, "error", "code"), jsonErrorField(body, "error", "message")
+				return firstJSONField(body, []string{"error", "code"}, []string{"error", "type"}, []string{"code"}),
+					firstJSONField(body, []string{"error", "message"}, []string{"message"}, []string{"detail"})
 			},
 		},
 	}

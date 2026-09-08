@@ -13,6 +13,30 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.10.1] — 2026-09-08
+
+### Fixed
+
+- **Provider errors were dumped as raw JSON when a gateway did not use the
+  OpenAI error shape.** The decoder looked only for `{"error":{"message":...}}`;
+  a gateway answering `{"status":401,"message":"API Key tidak valid"}` fell
+  through to printing the whole body. All three adapters now try several shapes
+  — nested, flat, and `detail` — before giving up, and a plain-text body still
+  survives intact.
+
+  `nemuz: openai: HTTP 401: {"status":401,"message":"API Key tidak valid","data":{}}`
+  became
+  `nemuz: openai: HTTP 401: API Key tidak valid`
+
+### Noted, not fixed
+
+- **There is no exec tool.** The capability model has an `Exec` field, the
+  sandbox can enforce it, and no built-in tool uses either — so an agent can
+  read, write and list, and cannot run anything. This surfaced when a skill the
+  agent wrote for itself said "run make lint, make test, make bench" and the
+  model correctly answered that it could not. Added to the roadmap rather than
+  rushed: an exec tool is the one that most needs the sandbox to be right.
+
 ## [0.10.0] — 2026-09-08
 
 ### Fixed
@@ -469,7 +493,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/kansaok/nemuz/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/kansaok/nemuz/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/kansaok/nemuz/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/kansaok/nemuz/compare/v0.9.0...v0.9.1

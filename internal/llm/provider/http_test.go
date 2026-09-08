@@ -184,3 +184,69 @@ func TestParseRetryAfterAcceptsBothForms(t *testing.T) {
 		t.Errorf("HTTP-date form gave %v", got)
 	}
 }
+
+// TestFlatErrorBodiesAreUnderstood covers a real gateway: it answers
+// {"status":401,"message":"..."} rather than the nested OpenAI shape, and
+// falling back to dumping the raw body turned a clear refusal into JSON the
+// operator had to read by eye.
+func TestFlatErrorBodiesAreUnderstood(t *testing.T) {
+	cases := map[string]struct{ body, wantMessage, wantCode string }{
+		"nested OpenAI": {
+			`{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}`,
+			"Incorrect API key provided", "invalid_api_key",
+		},
+		"flat gateway": {
+			`{"status":401,"message":"API Key tidak valid","data":{}}`,
+			"API Key tidak valid", "",
+		},
+		"detail only": {
+			`{"detail":"quota exhausted"}`,
+			"quota exhausted", "",
+		},
+	}
+
+	for name, tc := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+
+		_, err := NewOpenAI("test", fastConfig(srv.URL)).Complete(context.Background(), llm.Request{
+			Messages: []llm.Message{{Role: llm.RoleUser, Text: "halo"}},
+		})
+		srv.Close()
+
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) {
+			t.Errorf("%s: want *APIError, got %v", name, err)
+			continue
+		}
+		if apiErr.Message != tc.wantMessage {
+			t.Errorf("%s: message is %q, want %q", name, apiErr.Message, tc.wantMessage)
+		}
+		if apiErr.Code != tc.wantCode {
+			t.Errorf("%s: code is %q, want %q", name, apiErr.Code, tc.wantCode)
+		}
+	}
+}
+
+// TestNonJSONErrorBodiesSurviveIntact keeps a plain-text 404 from becoming an
+// empty message.
+func TestNonJSONErrorBodiesSurviveIntact(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("404 page not found"))
+	}))
+	defer srv.Close()
+
+	_, err := NewOpenAI("test", fastConfig(srv.URL)).Complete(context.Background(), llm.Request{
+		Messages: []llm.Message{{Role: llm.RoleUser, Text: "halo"}},
+	})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("want *APIError, got %v", err)
+	}
+	if apiErr.Message != "404 page not found" {
+		t.Errorf("message is %q", apiErr.Message)
+	}
+}

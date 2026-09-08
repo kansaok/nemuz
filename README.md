@@ -614,6 +614,10 @@ cannot be rebuilt from it.
 - [ ] Consolidating overlapping skills, which needs a model
 - [ ] seccomp filters and network capabilities
 - [ ] Sandbox backends for macOS and Windows
+- [ ] An exec tool. The capability model has an `Exec` field and the sandbox can
+      enforce it, but no built-in tool uses either — so an agent can read and
+      write, and cannot run anything. A skill the agent wrote for itself said
+      "run make lint, make test, make bench", and it could not.
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp
 - [x] OpenAI-compatible HTTP API, with replayable completion ids
 - [x] Agent Client Protocol v1, for Zed and other editors

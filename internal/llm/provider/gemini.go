@@ -50,7 +50,8 @@ func NewGemini(cfg Config) *Gemini {
 			name: "gemini",
 			cfg:  cfg,
 			decodeError: func(body []byte) (string, string) {
-				return jsonErrorField(body, "error", "status"), jsonErrorField(body, "error", "message")
+				return firstJSONField(body, []string{"error", "status"}, []string{"status"}),
+					firstJSONField(body, []string{"error", "message"}, []string{"message"})
 			},
 		},
 	}
