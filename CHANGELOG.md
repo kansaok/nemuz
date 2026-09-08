@@ -13,6 +13,47 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.5.0] — 2026-09-08
+
+Skills have to keep earning their place.
+
+### Added
+
+- **The curator.** Three checks that need no model, run once a day while the
+  agent is idle, or on demand:
+  - **Re-verification.** Active skills are run against their own scenarios
+    again. A skill that passed in one version is not proven forever — tools
+    change, plugins change, nemuz changes — and one that no longer passes is
+    returned to quarantine with the reason attached. This is only affordable
+    because scenarios replay recordings, which is what makes it routine rather
+    than an event.
+  - **Retirement.** Skills nobody has used for 90 days are archived.
+  - **Quarantine expiry.** Drafts that sat 30 days without being certified are
+    archived, so quarantine does not become the drawer where the agent's bad
+    ideas accumulate.
+- **`nemuz skill curate`** with `--dry-run`, `--force`, `--pause` and
+  `--resume`. `--force` bypasses the interval but deliberately not a pause: a
+  flag should not quietly overrule a decision someone made.
+- **`Store.Demote`** — active back to quarantine. It narrows what the agent can
+  do, so unlike promotion it needs no evidence; the burden of proof runs one
+  way, toward trusting the agent less.
+- **`--curate` on `nemuz run`**, on by default and rate limited to once a day.
+
+### Changed
+
+- The skill frontmatter field `archived_reason` is now `reason`, because it
+  carries the reason for a demotion as well as an archival. Existing skill files
+  keep working; the old field is simply ignored, and the reason is rewritten on
+  the next transition. `nemuz skill show` labels it to match the state.
+
+### Fixed
+
+- **Idleness was measured from the wrong field.** The curator fell back to
+  `UpdatedAt` when a skill had never been used, but that field changes on every
+  write to the store — bumping a use counter, pinning, even the curator saving
+  the skill back. A skill could look busy for having been touched by
+  bookkeeping. It now falls back to `CreatedAt`.
+
 ## [0.4.0] — 2026-09-08
 
 nemuz becomes importable, and its claims become enforced.
@@ -178,7 +219,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kansaok/nemuz/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kansaok/nemuz/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kansaok/nemuz/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kansaok/nemuz/compare/v0.1.0...v0.2.0

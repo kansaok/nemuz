@@ -210,7 +210,7 @@ func (s *Store) Promote(name string, report Report) error {
 
 	sk.State = StateActive
 	sk.PromotedBy = report.ID
-	sk.ArchivedReason = ""
+	sk.Reason = ""
 	return s.Save(sk)
 }
 
@@ -231,7 +231,27 @@ func (s *Store) Archive(name, reason string) error {
 		return nil
 	}
 	sk.State = StateArchived
-	sk.ArchivedReason = strings.TrimSpace(reason)
+	sk.Reason = strings.TrimSpace(reason)
+	return s.Save(sk)
+}
+
+// Demote returns an active skill to quarantine.
+//
+// This is the transition the curator uses when a skill that once passed its
+// evals stops passing them. It narrows what the agent can do, so unlike
+// promotion it needs no evidence — the burden of proof runs one way, and it
+// runs toward trusting the agent less.
+func (s *Store) Demote(name, reason string) error {
+	sk, err := s.Load(name)
+	if err != nil {
+		return err
+	}
+	if sk.State != StateActive {
+		return fmt.Errorf("skill %s: is %s, not active", name, sk.State)
+	}
+	sk.State = StateQuarantine
+	sk.PromotedBy = ""
+	sk.Reason = strings.TrimSpace(reason)
 	return s.Save(sk)
 }
 
@@ -249,7 +269,7 @@ func (s *Store) Restore(name string) error {
 	}
 	sk.State = StateQuarantine
 	sk.PromotedBy = ""
-	sk.ArchivedReason = ""
+	sk.Reason = ""
 	return s.Save(sk)
 }
 

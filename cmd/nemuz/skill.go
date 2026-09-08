@@ -27,7 +27,7 @@ func skillCmd() *cobra.Command {
 			"it can be undone.",
 	}
 	c.AddCommand(skillListCmd(), skillShowCmd(), skillEvalCmd(true), skillEvalCmd(false),
-		skillArchiveCmd(), skillRestoreCmd(), skillPinCmd(true), skillPinCmd(false))
+		skillArchiveCmd(), skillRestoreCmd(), skillPinCmd(true), skillPinCmd(false), curateCmd())
 	return c
 }
 
@@ -118,8 +118,12 @@ func skillShowCmd() *cobra.Command {
 			if sk.PromotedBy != "" {
 				fmt.Fprintf(tw, "promoted by\t%s\n", sk.PromotedBy)
 			}
-			if sk.ArchivedReason != "" {
-				fmt.Fprintf(tw, "archived because\t%s\n", sk.ArchivedReason)
+			if sk.Reason != "" {
+				label := "archived because"
+				if sk.State == skill.StateQuarantine {
+					label = "sent back because"
+				}
+				fmt.Fprintf(tw, "%s\t%s\n", label, sk.Reason)
 			}
 			if sk.Pinned {
 				fmt.Fprintf(tw, "pinned\tyes — exempt from automatic curation\n")

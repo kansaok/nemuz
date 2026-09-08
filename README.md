@@ -9,9 +9,9 @@ API call. And skills the agent teaches itself can be proven before they are
 trusted.
 
 > Status: early. The turn loop, provider adapters, tool plugins, memory,
-> background review, learned skills with an eval gate, journal, replay, and the
-> Landlock sandbox work and are tested end to end. The idle curator and chat
-> channels are not built yet.
+> background review, learned skills with an eval gate and a curator, journal,
+> replay, and the Landlock sandbox work and are tested end to end. Chat channels
+> are not built yet.
 
 ## Why
 
@@ -242,6 +242,37 @@ The gate asks *does this skill still make the agent do the right thing?* — and
 because adding a skill changes the system prompt by construction, it asserts on
 behaviour instead: which tools ran, what the answer said, how long it took.
 
+## Passing once is not passing forever
+
+A skill that was proven in March is not proven in September. Tools change,
+plugins change, nemuz changes. So the curator runs the scenarios again — and
+because they replay recordings, it costs nothing, which is the only reason it
+can be routine rather than an event.
+
+```
+$ nemuz skill curate
+1 of 2 skill(s) changed
+
+  ok       masih-benar  1 of 1 scenarios passed
+ demoted   sudah-rusak  no longer passes its own scenarios: 1 of 1 scenarios failed: dasar
+```
+
+A skill that stops passing goes back to quarantine with the reason attached. It
+is not deleted, and not archived — it simply stops being trusted until it earns
+that back.
+
+The curator also retires skills nobody has used, and clears out drafts that sat
+in quarantine without ever being certified, so quarantine does not become the
+drawer where the agent's bad ideas accumulate. It runs once a day while the
+agent is idle, or on demand with `--force`; `--dry-run` says what it would do.
+
+Three things it will never do: touch a skill a person wrote, touch a pinned
+skill, or delete anything.
+
+The judgement it does *not* make is consolidating two overlapping skills into
+one. That needs a model, and it is a real gap — the checks above are the ones
+that can be made from evidence already on disk.
+
 ## Providers
 
 Three wire formats cover thirteen providers, because most vendors serve the
@@ -406,6 +437,7 @@ internal/plugin/    JSON-RPC host, capability policy
 internal/skill/     learned skills, lifecycle invariants, the eval gate
 internal/memory/    remembered facts and deterministic recall
 internal/review/    the post-turn review, and its two-tool registry
+internal/curator/   re-verification, retirement, quarantine expiry
 internal/sandbox/   Landlock enforcement
 internal/config/    where state lives
 bench/              size, startup, and file-length budgets, enforced by make
@@ -441,7 +473,9 @@ cannot be rebuilt from it.
 - [x] Learned skills, lifecycle invariants, and the eval gate
 - [x] Sandboxed tool worker, verified end to end by `nemuz doctor`
 - [x] Memory with deterministic recall, and background review with novelty filtering
-- [ ] The idle curator: retiring skills nobody uses
+- [x] The idle curator: re-verification, retirement, quarantine expiry
+- [x] A public API and CI that enforces the no-network and sandbox claims
+- [ ] Consolidating overlapping skills, which needs a model
 - [ ] seccomp filters and network capabilities
 - [ ] Sandbox backends for macOS and Windows
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp

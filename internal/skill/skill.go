@@ -83,8 +83,9 @@ type Skill struct {
 	// PromotedBy records the eval run that let this skill out of quarantine.
 	// A skill in StateActive without it is a bug, and Validate says so.
 	PromotedBy string `yaml:"promoted_by,omitempty"`
-	// ArchivedReason explains a retirement, so it can be reversed knowingly.
-	ArchivedReason string `yaml:"archived_reason,omitempty"`
+	// Reason explains the most recent transition out of active — archived or
+	// demoted — so it can be reversed knowingly.
+	Reason string `yaml:"reason,omitempty"`
 
 	// Body is the Markdown the model actually reads.
 	Body string `yaml:"-"`

@@ -137,7 +137,7 @@ func TestArchivingIsReversibleAndReturnsToQuarantine(t *testing.T) {
 	if sk.State != StateArchived {
 		t.Fatalf("skill is %s", sk.State)
 	}
-	if sk.ArchivedReason == "" {
+	if sk.Reason == "" {
 		t.Error("archiving recorded no reason")
 	}
 

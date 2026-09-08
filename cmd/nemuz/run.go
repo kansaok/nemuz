@@ -36,6 +36,7 @@ func runCmd() *cobra.Command {
 		doReview     bool
 		reviewModel  string
 		sandboxMode  string
+		doCurate     bool
 	)
 
 	c := &cobra.Command{
@@ -170,6 +171,9 @@ func runCmd() *cobra.Command {
 				})
 				reportReview(cmd, result, reviewErr)
 			}
+			if doCurate {
+				curateIfDue(cmd, ts)
+			}
 			return nil
 		},
 	}
@@ -188,6 +192,7 @@ func runCmd() *cobra.Command {
 	c.Flags().BoolVar(&useMemories, "memories", true, "recall relevant memories into the system prompt")
 	c.Flags().BoolVar(&doReview, "review", true, "after the turn, decide what was worth remembering")
 	c.Flags().StringVar(&reviewModel, "review-model", "", "cheaper model for the review (defaults to --model)")
+	c.Flags().BoolVar(&doCurate, "curate", true, "once a day, re-verify and tidy the agent's own skills")
 	return c
 }
 
