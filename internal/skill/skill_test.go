@@ -451,3 +451,119 @@ func TestScenarioJournalCannotEscapeItsSkill(t *testing.T) {
 		}
 	}
 }
+
+// ---------- attaching evidence ----------
+
+// TestAttachScenarioKeepsTheRecordingBeside It covers the gap that made the gate
+// unpassable: nothing in nemuz could write a scenario, so every skill the agent
+// wrote sat in quarantine until the curator archived it. The loop never closed.
+func TestAttachScenarioKeepsTheRecordingBesideIt(t *testing.T) {
+	s := newStore(t)
+	learned(t, s, "baca-dulu")
+
+	recording := filepath.Join(t.TempDir(), "01TURN.jsonl")
+	if err := os.WriteFile(recording, []byte(`{"seq":1,"kind":"turn.start","payload":{}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.AttachScenario("baca-dulu", Scenario{
+		Name:   "dasar",
+		Expect: Expectations{MustCall: []string{"read_file"}},
+	}, recording)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scenarios, err := s.Scenarios("baca-dulu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scenarios) != 1 {
+		t.Fatalf("attached %d scenarios", len(scenarios))
+	}
+
+	// The recording must be inside the skill, not referenced elsewhere: the
+	// two have to travel together when a skill is copied between machines.
+	evalDir, _ := s.EvalDir("baca-dulu")
+	if got := scenarios[0].Journal; !strings.HasPrefix(got, evalDir) {
+		t.Errorf("the scenario points outside the skill: %s", got)
+	}
+	if _, err := os.Stat(scenarios[0].Journal); err != nil {
+		t.Fatalf("the recording was not copied in: %v", err)
+	}
+}
+
+func TestAttachScenarioNeedsARealRecording(t *testing.T) {
+	s := newStore(t)
+	learned(t, s, "tanpa-rekaman")
+
+	err := s.AttachScenario("tanpa-rekaman", Scenario{
+		Name:   "dasar",
+		Expect: Expectations{MustSucceed: true},
+	}, filepath.Join(t.TempDir(), "tidak-ada.jsonl"))
+	if err == nil {
+		t.Fatal("a scenario was attached with no recording to replay")
+	}
+}
+
+func TestTwoScenariosGetTheirOwnRecordings(t *testing.T) {
+	s := newStore(t)
+	learned(t, s, "dua-skenario")
+	dir := t.TempDir()
+
+	for i, name := range []string{"pertama", "kedua"} {
+		rec := filepath.Join(dir, name+".jsonl")
+		body := `{"seq":1,"kind":"turn.start","payload":{"n":` + string(rune('0'+i)) + `}}` + "\n"
+		if err := os.WriteFile(rec, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AttachScenario("dua-skenario", Scenario{
+			Name: name, Expect: Expectations{MustSucceed: true},
+		}, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	scenarios, _ := s.Scenarios("dua-skenario")
+	if len(scenarios) != 2 {
+		t.Fatalf("got %d scenarios", len(scenarios))
+	}
+	if scenarios[0].Journal == scenarios[1].Journal {
+		t.Fatal("both scenarios share one recording, so they cannot test different things")
+	}
+}
+
+func TestRemoveScenarioTakesItsRecordingToo(t *testing.T) {
+	s := newStore(t)
+	learned(t, s, "dibuang")
+	rec := filepath.Join(t.TempDir(), "turn.jsonl")
+	os.WriteFile(rec, []byte(`{"seq":1,"kind":"turn.start","payload":{}}`+"\n"), 0o600)
+	if err := s.AttachScenario("dibuang", Scenario{Name: "dasar", Expect: Expectations{MustSucceed: true}}, rec); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.RemoveScenario("dibuang", "dasar"); err != nil {
+		t.Fatal(err)
+	}
+	scenarios, _ := s.Scenarios("dibuang")
+	if len(scenarios) != 0 {
+		t.Fatalf("%d scenarios survived removal", len(scenarios))
+	}
+	evalDir, _ := s.EvalDir("dibuang")
+	if _, err := os.Stat(filepath.Join(evalDir, "dasar.jsonl")); !os.IsNotExist(err) {
+		t.Error("the recording was left behind")
+	}
+	if err := s.RemoveScenario("dibuang", "dasar"); err == nil {
+		t.Error("removing a scenario that is gone reported success")
+	}
+}
+
+func TestRemoveScenarioRejectsBadNames(t *testing.T) {
+	s := newStore(t)
+	learned(t, s, "aman")
+	for _, bad := range []string{"../../etc/passwd", "Upper", "with space"} {
+		if err := s.RemoveScenario("aman", bad); err == nil {
+			t.Errorf("%q was accepted as a scenario name", bad)
+		}
+	}
+}

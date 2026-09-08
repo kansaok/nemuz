@@ -340,6 +340,64 @@ func (s *Store) SaveScenario(name string, sc Scenario) error {
 	return os.WriteFile(filepath.Join(dir, sc.Name+".json"), append(body, '\n'), 0o600)
 }
 
+// AttachScenario stores a scenario together with the recording it replays.
+//
+// A scenario is only useful next to its recording: the two travel together when
+// a skill is copied between machines, and a scenario pointing at a journal that
+// moved is a scenario that fails for the wrong reason. This copies the turn in
+// rather than referring to it.
+func (s *Store) AttachScenario(name string, sc Scenario, journalPath string) error {
+	if sc.Name == "" {
+		return fmt.Errorf("skill %s: a scenario needs a name", name)
+	}
+	dir, err := s.EvalDir(name)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("skill %s: create eval directory: %w", name, err)
+	}
+
+	recording, err := os.ReadFile(journalPath)
+	if err != nil {
+		return fmt.Errorf("skill %s: read the recording: %w", name, err)
+	}
+	// Named after the scenario so two scenarios can replay different turns.
+	recordingName := sc.Name + ".jsonl"
+	if err := os.WriteFile(filepath.Join(dir, recordingName), recording, 0o600); err != nil {
+		return fmt.Errorf("skill %s: store the recording: %w", name, err)
+	}
+
+	sc.Journal = recordingName
+	return s.SaveScenario(name, sc)
+}
+
+// RemoveScenario deletes a scenario and the recording it owned.
+func (s *Store) RemoveScenario(name, scenario string) error {
+	dir, err := s.EvalDir(name)
+	if err != nil {
+		return err
+	}
+	if !ValidName(scenario) {
+		return fmt.Errorf("skill %s: %q is not a valid scenario name", name, scenario)
+	}
+	found := false
+	for _, f := range []string{scenario + ".json", scenario + ".jsonl"} {
+		err := os.Remove(filepath.Join(dir, f))
+		if err == nil {
+			found = true
+			continue
+		}
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("skill %s: remove %s: %w", name, f, err)
+		}
+	}
+	if !found {
+		return fmt.Errorf("skill %s: has no scenario called %q", name, scenario)
+	}
+	return nil
+}
+
 // safeJoin resolves rel under base, refusing anything that escapes.
 func safeJoin(base, rel string) (string, error) {
 	if filepath.IsAbs(rel) {

@@ -13,6 +13,40 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.10.0] — 2026-09-08
+
+### Fixed
+
+- **The learning loop could never close.** Skills the agent wrote for itself
+  landed in quarantine and needed scenarios to be certified — and nothing in
+  nemuz could write one. `SaveScenario` existed with no caller, the reviewer had
+  no way to produce one, and there was no command for a person to add one. Every
+  agent-written skill was born, waited, and was archived by the curator thirty
+  days later. The gate was one nothing could pass.
+
+  Found by running against a real model: the agent wrote a genuinely useful
+  skill, and there was no route from there to using it.
+
+### Added
+
+- **`nemuz skill scenario add|ls|rm`.** A scenario is built from a recorded
+  turn, and the recording is copied in beside it so the two travel together when
+  a skill is shared or moved.
+- A scenario that asserts nothing is refused. One that passes whatever the skill
+  does is worse than none, because it makes the gate look satisfied.
+- When certification fails for want of scenarios, the report now says how to
+  write one and lists recent turns to build it from.
+
+### A position, not a gap
+
+The reviewer still cannot write its own scenarios, and that is deliberate. A
+skill that graded itself would be evidence of nothing. nemuz's claim is that a
+learned skill has been checked against what *someone else* said "working" means,
+and that claim only holds while the agent proposes and a person decides.
+
+The cost is a person in the loop before a skill goes live. That is the trade,
+stated rather than engineered around.
+
 ## [0.9.2] — 2026-09-08
 
 ### Fixed
@@ -435,7 +469,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/kansaok/nemuz/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/kansaok/nemuz/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/kansaok/nemuz/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kansaok/nemuz/compare/v0.8.0...v0.9.0

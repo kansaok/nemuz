@@ -225,6 +225,14 @@ A scenario is a recorded turn plus what the skill must make happen:
 }
 ```
 
+Scenarios are written with `nemuz skill scenario add`, pointing at a recorded
+turn where the skill would have applied:
+
+```bash
+nemuz skill scenario add project-health-check --turn 01M20T32S3 \
+  --must-call read_file --must-not-call write_file --must-succeed
+```
+
 ```
 $ nemuz skill certify pakai-shout --plugin "node ./plugin.mjs"
 pakai-shout — 1 of 1 scenarios passed
@@ -238,6 +246,12 @@ promoted to active, evidence eval-20260908T070434Z
 **Certification costs nothing.** The model's answers come from the recording, so
 no API call is made and no network is needed. A gate that costs money every time
 gets switched off, and a gate that is switched off protects nothing.
+
+**The agent does not write its own exam.** It proposes a skill; someone else
+says what "working" means. That is deliberate, and it is the whole difference
+from trusting the model's own say-so — a skill that graded itself would be
+evidence of nothing. The cost is that certification needs a person in the loop,
+which is a trade this project makes on purpose.
 
 Three rules hold no matter who is acting:
 

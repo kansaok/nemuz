@@ -12,6 +12,7 @@ import (
 	"github.com/kansaok/nemuz/internal/agent"
 	"github.com/kansaok/nemuz/internal/blob"
 	"github.com/kansaok/nemuz/internal/config"
+	"github.com/kansaok/nemuz/internal/journal"
 	"github.com/kansaok/nemuz/internal/skill"
 	"github.com/spf13/cobra"
 )
@@ -27,7 +28,7 @@ func skillCmd() *cobra.Command {
 			"it can be undone.",
 	}
 	c.AddCommand(skillListCmd(), skillShowCmd(), skillEvalCmd(true), skillEvalCmd(false),
-		skillArchiveCmd(), skillRestoreCmd(), skillPinCmd(true), skillPinCmd(false), curateCmd())
+		skillArchiveCmd(), skillRestoreCmd(), skillPinCmd(true), skillPinCmd(false), curateCmd(), scenarioCmd())
 	return c
 }
 
@@ -226,6 +227,16 @@ func skillEvalCmd(promote bool) *cobra.Command {
 			}
 
 			printReport(cmd.OutOrStdout(), name, report, promote)
+			if len(report.Results) == 0 {
+				paths, perr := config.Resolve()
+				if perr == nil {
+					turns, _ := journal.List(paths.Journal)
+					if n := len(turns); n > 5 {
+						turns = turns[n-5:]
+					}
+					fmt.Fprint(cmd.OutOrStdout(), suggestScenario(name, turns))
+				}
+			}
 			if !promote {
 				// `eval` reports; it does not fail the shell for a skill that
 				// simply is not ready yet.
