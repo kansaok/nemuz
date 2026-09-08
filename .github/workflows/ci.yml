@@ -10,12 +10,13 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.27"
+  GO_VERSION: "1.24"
 
 jobs:
   test:
     name: Build and test
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -47,6 +48,7 @@ jobs:
   offline:
     name: Tests need no network
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -54,37 +56,43 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
 
-      # Everything the tests need must already be on disk, because the next
-      # step takes the network away.
-      - name: Warm the module and build caches
-        run: |
-          go mod download
-          go build ./...
-          go test -count=1 -run XXX_NONE ./... > /dev/null
-
       # nemuz claims its whole suite runs without touching the network: every
       # provider test uses httptest, and every replay reads a recording. This
-      # job is what makes that a fact rather than an intention. Loopback stays
-      # up, so httptest servers still work; everything else is refused.
-      - name: Cut outbound network
-        run: |
-          sudo iptables  -I OUTPUT ! -o lo -j REJECT
-          sudo ip6tables -I OUTPUT ! -o lo -j REJECT || true
+      # job makes that a fact rather than an intention.
+      #
+      # The isolation is a container with no network interface but loopback,
+      # rather than a firewall rule on the runner. Blocking egress on the runner
+      # also cuts the runner's own connection to GitHub, so the job hangs
+      # instead of reporting — which is exactly what the first version of this
+      # file did.
+      - name: Fetch dependencies before isolating
+        run: go mod download
 
-      - name: Confirm the network really is gone
+      - name: Run the suite with no network
         run: |
-          if timeout 5 curl -sSf https://proxy.golang.org > /dev/null 2>&1; then
-            echo "outbound traffic still works; this job would prove nothing"
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/src" -w /src \
+            -v "$(go env GOMODCACHE):/gomodcache" \
+            -e GOMODCACHE=/gomodcache \
+            -e GOCACHE=/tmp/gocache \
+            -e HOME=/tmp \
+            "golang:${GO_VERSION}" \
+            go test -count=1 ./...
+
+      - name: Confirm the container really had no network
+        run: |
+          if docker run --rm --network none "golang:${GO_VERSION}" \
+             timeout 5 curl -sSf https://proxy.golang.org > /dev/null 2>&1; then
+            echo "the isolated container reached the internet; this job proves nothing"
             exit 1
           fi
-          echo "outbound traffic is blocked"
-
-      - name: Test with no network
-        run: go test -count=1 ./...
+          echo "confirmed: no outbound traffic is possible in that container"
 
   sandbox:
     name: Sandbox is enforced
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

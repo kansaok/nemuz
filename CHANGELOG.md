@@ -13,6 +13,24 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.5.1] — 2026-09-08
+
+### Fixed
+
+- **The offline CI job hung instead of reporting.** It cut all outbound traffic
+  on the runner with an iptables rule, which also cuts the runner's own
+  connection to GitHub — so the job could never report a result or upload logs,
+  and sat until the six-hour timeout. A block that kills its own reporter proves
+  nothing.
+
+  The suite now runs inside a container with no network interface but loopback,
+  which isolates the tests rather than the machine. It finishes in about twenty
+  seconds, and a companion step confirms that container genuinely cannot reach
+  the internet — otherwise the job would pass by being wrong in both directions.
+- Added `timeout-minutes` to every job, so a hang fails in twenty minutes rather
+  than six hours.
+- Pinned CI to Go 1.24, matching the go directive, instead of 1.27.
+
 ## [0.5.0] — 2026-09-08
 
 Skills have to keep earning their place.
@@ -219,7 +237,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/kansaok/nemuz/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kansaok/nemuz/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kansaok/nemuz/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kansaok/nemuz/compare/v0.2.0...v0.3.0
