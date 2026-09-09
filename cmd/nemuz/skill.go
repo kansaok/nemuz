@@ -28,7 +28,7 @@ func skillCmd() *cobra.Command {
 			"it can be undone.",
 	}
 	c.AddCommand(skillListCmd(), skillShowCmd(), skillEvalCmd(true), skillEvalCmd(false),
-		skillArchiveCmd(), skillRestoreCmd(), skillPinCmd(true), skillPinCmd(false), curateCmd(), scenarioCmd())
+		skillArchiveCmd(), skillRestoreCmd(), skillPinCmd(true), skillPinCmd(false), curateCmd(), scenarioCmd(), consolidateCmd())
 	return c
 }
 

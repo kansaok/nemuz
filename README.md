@@ -269,6 +269,47 @@ The gate asks *does this skill still make the agent do the right thing?* — and
 because adding a skill changes the system prompt by construction, it asserts on
 behaviour instead: which tools ran, what the answer said, how long it took.
 
+## Finding skills that teach the same thing twice
+
+The curator retires and re-verifies skills without ever calling a model — that
+is what lets it run automatically and for free. Whether two skills are *the
+same idea written twice* is a different kind of question: a judgement about
+meaning, not something a mechanical rule can decide. So it is its own explicit
+step.
+
+```
+$ nemuz skill consolidate
+1 candidate pair(s) considered, 1 merged
+
+merged  cek-struktur-direktori + lihat-isi-proyek → cek-struktur-direktori
+        needs certifying: nemuz skill certify cek-struktur-direktori
+        reasoning: nemuz journal show 01M223A4T44NJ085FN82YBBKPQ
+```
+
+A cheap local pass — how much two descriptions' words overlap — finds candidate
+pairs first, so the model is only asked about ones that already look plausibly
+related, among active, agent-written, unpinned skills. Most real pairs should
+end in **keep separate**, and the model is expected to say so:
+
+```
+$ nemuz skill consolidate
+  keep  deploy-ke-produksi + deploy-ke-staging — production requires approval
+        first, staging does not — merging them risks skipping that requirement.
+```
+
+**A merge is not trusted for having been proposed.** The result starts in
+quarantine like any skill the agent writes for itself, carrying over both
+sources' eval scenarios so it can be certified without writing new ones — the
+same gate, the same standard, evidence reused rather than assumed. The sources
+are archived, not deleted, with a reason naming what replaced them.
+
+Two bugs live testing found, neither of which a scripted test alone would have:
+a model that named the merge after one of the two sources, rather than
+inventing a third name, and a model that decided correctly and then closed with
+an empty answer, which the agent loop reads as a turn failure. Both are fixed
+and covered by regression tests now — proof that testing against a real model,
+even briefly, finds a different class of bug than a scripted one ever will.
+
 ## Passing once is not passing forever
 
 A skill that was proven in March is not proven in September. Tools change,
@@ -644,6 +685,7 @@ internal/skill/     learned skills, lifecycle invariants, the eval gate
 internal/memory/    remembered facts and deterministic recall
 internal/review/    the post-turn review, and its two-tool registry
 internal/curator/   re-verification, retirement, quarantine expiry
+internal/consolidate/  finding and merging overlapping skills, with a model
 internal/httpapi/   the OpenAI-compatible server
 internal/acp/       the Agent Client Protocol server
 internal/metrics/   Prometheus exposition, written by hand rather than imported
@@ -684,8 +726,8 @@ cannot be rebuilt from it.
 - [x] Sandboxed tool worker, verified end to end by `nemuz doctor`
 - [x] Memory with deterministic recall, and background review with novelty filtering
 - [x] The idle curator: re-verification, retirement, quarantine expiry
+- [x] Consolidating overlapping skills, with a model, as its own explicit step
 - [x] A public API and CI that enforces the no-network and sandbox claims
-- [ ] Consolidating overlapping skills, which needs a model
 - [ ] Sandbox backends for macOS and Windows
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp
 - [x] OpenAI-compatible HTTP API, with replayable completion ids

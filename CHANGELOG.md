@@ -13,6 +13,55 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.13.0] — 2026-09-09
+
+Skills that teach the same thing twice, found and merged — with a model, as
+its own explicit step.
+
+### Added
+
+- **`nemuz skill consolidate`.** The curator retires and re-verifies skills
+  without ever calling a model; whether two skills are the same idea written
+  twice is a judgement about meaning a mechanical rule cannot make, so
+  consolidation is deliberately not folded into the free curator loop.
+
+  A cheap local pass — word overlap between descriptions — finds candidate
+  pairs first, among active, agent-written, unpinned skills only, so the model
+  is asked about a bounded number of plausibly-related pairs rather than every
+  pair quadratically. A novelty ledger, reusing the same mechanism review
+  already has, skips a pair asked about recently.
+
+  **A merge is not trusted for having been proposed.** The result starts in
+  quarantine like any skill the agent writes for itself. Both sources' eval
+  scenarios are carried into it, so it can be certified against real evidence
+  without writing new scenarios from scratch — proven end to end: the carried
+  scenarios actually replay and pass a real `skill.Gate` in the test suite, not
+  merely copied files. The sources are archived, not deleted, with a reason
+  naming what replaced them.
+
+### Two bugs live testing found, that no scripted test had
+
+Every scripted test in this package invented a new name for a merge and had
+the model answer decisively. A few minutes against a real model broke both
+assumptions:
+
+- **The model named the merge after one of the two sources**, rather than
+  inventing a third name. Applying that merge saved the new quarantined skill
+  to the same file as the source it was named after, then immediately
+  archived that same file to retire the source — undoing the merge in the same
+  breath it created it. Fixed: a source whose name the merge kept is no longer
+  separately archived, because saving the merge already replaced it.
+- **The model decided correctly, then closed with an essentially empty
+  answer** — a response with neither text nor a tool call, which
+  `agent.Response.Validate` treats as a turn failure. The already-captured
+  decision was being discarded because of what happened one step later.
+  Fixed: the tool that actually fired is checked before the turn's overall
+  error, not instead of it. The prompt also now asks explicitly for a closing
+  sentence, the same instruction review's prompt already gives.
+
+Both are covered by regression tests reproducing the exact shape of what a real
+model did, and both were re-verified against the same live provider afterward.
+
 ## [0.12.0] — 2026-09-09
 
 seccomp, layered under Landlock.
@@ -618,7 +667,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/kansaok/nemuz/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/kansaok/nemuz/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/kansaok/nemuz/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/kansaok/nemuz/compare/v0.10.1...v0.11.0
