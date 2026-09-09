@@ -6,6 +6,7 @@ import (
 
 	"github.com/kansaok/nemuz"
 	"github.com/kansaok/nemuz/internal/acp"
+	"github.com/kansaok/nemuz/internal/config"
 	"github.com/kansaok/nemuz/internal/llm/provider"
 	"github.com/spf13/cobra"
 )
@@ -38,6 +39,20 @@ func acpCmd() *cobra.Command {
 			"refused rather than answered from the wrong place.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			paths, err := config.Resolve()
+			if err != nil {
+				return err
+			}
+			settings := config.LoadSettingsQuiet(paths.Config)
+			applyStringDefault(cmd, "provider", &providerName, "provider", settings)
+			applyStringDefault(cmd, "model", &model, "model", settings)
+			applyStringDefault(cmd, "base-url", &baseURL, "base-url", settings)
+			applyStringDefault(cmd, "sandbox", &sandboxMode, "sandbox", settings)
+			applyListDefault(cmd, "allow-exec", &allowExec, "allow-exec", settings)
+			applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
+			applyBoolDefault(cmd, "skills", &useSkills, "skills", settings)
+			applyBoolDefault(cmd, "memories", &useMemories, "memories", settings)
+
 			p, err := provider.Open(provider.Spec{Provider: providerName, Model: model, BaseURL: baseURL})
 			if err != nil {
 				return err

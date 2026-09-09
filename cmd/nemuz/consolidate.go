@@ -41,6 +41,18 @@ func consolidateCmd() *cobra.Command {
 			"reason naming what replaced them.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			paths, err := config.Resolve()
+			if err != nil {
+				return err
+			}
+			if err := paths.EnsureDirs(); err != nil {
+				return err
+			}
+			settings := config.LoadSettingsQuiet(paths.Config)
+			applyStringDefault(cmd, "provider", &providerName, "provider", settings)
+			applyStringDefault(cmd, "model", &model, "model", settings)
+			applyStringDefault(cmd, "base-url", &baseURL, "base-url", settings)
+
 			p, err := provider.Open(provider.Spec{Provider: providerName, Model: model, BaseURL: baseURL})
 			if err != nil {
 				return err
@@ -49,14 +61,6 @@ func consolidateCmd() *cobra.Command {
 				if preset, ok := provider.Lookup(providerName); ok {
 					model = preset.DefaultModel
 				}
-			}
-
-			paths, err := config.Resolve()
-			if err != nil {
-				return err
-			}
-			if err := paths.EnsureDirs(); err != nil {
-				return err
 			}
 			skills, err := skill.Open(paths.Skills)
 			if err != nil {

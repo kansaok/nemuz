@@ -48,20 +48,30 @@ func runCmd() *cobra.Command {
 			"API keys come from the environment; see `nemuz providers`.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, cmdArgs []string) error {
+			paths, err := config.Resolve()
+			if err != nil {
+				return err
+			}
+			if err := paths.EnsureDirs(); err != nil {
+				return err
+			}
+			settings := config.LoadSettingsQuiet(paths.Config)
+			applyStringDefault(cmd, "provider", &providerName, "provider", settings)
+			applyStringDefault(cmd, "model", &model, "model", settings)
+			applyStringDefault(cmd, "base-url", &baseURL, "base-url", settings)
+			applyStringDefault(cmd, "sandbox", &sandboxMode, "sandbox", settings)
+			applyStringDefault(cmd, "review-model", &reviewModel, "review-model", settings)
+			applyListDefault(cmd, "allow-exec", &allowExec, "allow-exec", settings)
+			applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
+			applyBoolDefault(cmd, "skills", &useSkills, "skills", settings)
+			applyBoolDefault(cmd, "memories", &useMemories, "memories", settings)
+
 			p, err := provider.Open(provider.Spec{
 				Provider: providerName,
 				Model:    model,
 				BaseURL:  baseURL,
 			})
 			if err != nil {
-				return err
-			}
-
-			paths, err := config.Resolve()
-			if err != nil {
-				return err
-			}
-			if err := paths.EnsureDirs(); err != nil {
 				return err
 			}
 			bs, err := blob.Open(paths.Blobs)

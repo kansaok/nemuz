@@ -103,6 +103,11 @@ func runReplay(cmd *cobra.Command, turnRef string, opts replayOptions) error {
 		return err
 	}
 
+	settings := config.LoadSettingsQuiet(paths.Config)
+	applyStringDefault(cmd, "sandbox", &opts.sandbox, "sandbox", settings)
+	applyListDefault(cmd, "allow-exec", &opts.allowExec, "allow-exec", settings)
+	applyListDefault(cmd, "allow-net", &opts.allowNet, "allow-net", settings)
+
 	ts, err := buildToolset(cmd.Context(), toolsetOptions{
 		Workspace:  workspace,
 		Sandbox:    SandboxMode(opts.sandbox),

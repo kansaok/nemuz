@@ -11,7 +11,28 @@ listed under **Changed** with what to do about them.
 
 ## [Unreleased]
 
-Nothing yet.
+One-line install, and defaults you don't have to keep retyping.
+
+### Added
+
+- **`install.sh` / `install.ps1`.** One-line install matching what every
+  competing agent tool already offers, without the tradeoff most of them make:
+  neither script needs root or administrator. Both resolve the latest (or a
+  pinned `--version`) GitHub release, download the right archive for the
+  platform, verify its SHA-256 against the release's own `checksums.txt`
+  before touching disk, and install to a user-level directory
+  (`~/.local/bin`, or `%LOCALAPPDATA%\nemuz\bin` on Windows) that gets added
+  to `PATH`. `install.sh --system` uses `/usr/local/bin` instead.
+- **`nemuz config`.** Saves defaults — provider, model, review-model,
+  base-url, sandbox, allow-exec, allow-net, skills, memories — to
+  `~/.nemuz/config.yaml`, so they don't need to be passed as flags on every
+  invocation. `run`, `serve`, `acp`, `replay`, `consolidate`, `skill
+  eval`/`certify`, and `skill curate` all read from it. A flag passed
+  explicitly on the command line always overrides a saved default — the file
+  only fills in what wasn't said this time — and a missing or corrupt config
+  file never blocks a command; it just falls back to nemuz's built-in
+  defaults, the same way a missing journal directory means no turns have run
+  yet rather than an error.
 
 ## [0.13.0] — 2026-09-09
 

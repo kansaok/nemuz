@@ -201,6 +201,13 @@ func skillEvalCmd(promote bool) *cobra.Command {
 			"needs no network. A skill that cannot prove itself stays in quarantine.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if paths, perr := config.Resolve(); perr == nil {
+				settings := config.LoadSettingsQuiet(paths.Config)
+				applyStringDefault(cmd, "sandbox", &sandboxMode, "sandbox", settings)
+				applyListDefault(cmd, "allow-exec", &allowExec, "allow-exec", settings)
+				applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
+			}
+
 			// Scenarios must run against the toolset the skill will actually
 			// have. Certifying against a smaller one proves nothing: the tools
 			// the skill depends on simply fail, which the gate now catches.

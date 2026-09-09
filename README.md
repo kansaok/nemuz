@@ -76,8 +76,22 @@ differ in timing, and that must not count as a difference.
 
 ## Install
 
-Download an archive from [releases](https://github.com/kansaok/nemuz/releases),
-or:
+```bash
+curl -fsSL https://raw.githubusercontent.com/kansaok/nemuz/master/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/kansaok/nemuz/master/install.ps1 | iex
+```
+
+Neither script needs root or administrator: they install to a user-level
+directory (`~/.local/bin`, or `%LOCALAPPDATA%\nemuz\bin` on Windows) and verify
+the download's SHA-256 against the release's own `checksums.txt` before
+installing anything. Pass `--system` to install.sh to use `/usr/local/bin`
+instead, or `--version vX.Y.Z` to either script to pin a release.
+
+Or download an archive directly from
+[releases](https://github.com/kansaok/nemuz/releases), or build from source:
 
 ```bash
 go install github.com/kansaok/nemuz/cmd/nemuz@latest
@@ -134,6 +148,29 @@ and the replay stops at the exact point where the run stopped matching:
 ```
 DIVERGED  llm: replay diverged before model call 2 — the request differs from the recording
 ```
+
+## Configuring defaults
+
+Typing `--provider anthropic --model claude-opus-5` on every command gets old.
+`nemuz config` saves defaults once, in `~/.nemuz/config.yaml`:
+
+```bash
+nemuz config set provider anthropic
+nemuz config set model claude-opus-5
+nemuz config set sandbox on
+nemuz config set allow-exec go,make
+nemuz config get model
+nemuz config unset sandbox
+nemuz config          # list everything currently saved
+```
+
+`run`, `serve`, `acp`, `replay`, `consolidate`, `skill eval`/`certify`, and
+`skill curate` all read from this file for the flags they take — provider,
+model, review-model, base-url, sandbox, allow-exec, allow-net, skills,
+memories. A flag passed explicitly on the command line always wins over a
+saved default; the file only fills in what you didn't say this time. Nothing
+here is required — nemuz runs fine with no config file, falling back to its
+built-in defaults exactly as before.
 
 ## Memory, and learning without being asked
 

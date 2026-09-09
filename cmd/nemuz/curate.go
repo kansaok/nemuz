@@ -49,6 +49,13 @@ func curateCmd() *cobra.Command {
 				return setCuratorPaused(cmd, pause)
 			}
 
+			if paths, perr := config.Resolve(); perr == nil {
+				settings := config.LoadSettingsQuiet(paths.Config)
+				applyStringDefault(cmd, "sandbox", &sandbox, "sandbox", settings)
+				applyListDefault(cmd, "allow-exec", &allowExec, "allow-exec", settings)
+				applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
+			}
+
 			gate, cleanup, err := buildGate(cmd.Context(), gateOptions{
 				workspace:  workspace,
 				pluginCmds: pluginCmds,
