@@ -42,12 +42,56 @@ func TestLocalProvidersNeedNoKey(t *testing.T) {
 
 func TestMissingKeyNamesTheEnvironmentVariable(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv(GenericKeyEnv, "")
 	_, err := Open(Spec{Provider: "anthropic"})
 	if err == nil {
 		t.Fatal("a provider was opened with no key")
 	}
 	if !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
 		t.Errorf("the error should name the variable to set, got: %v", err)
+	}
+}
+
+// TestGenericKeyEnvIsAFallback is why NEMUZ_API_KEY exists: --base-url
+// pointed at a custom OpenAI-compatible gateway still has to pick some
+// preset's name to get the right wire format (often "openai", the most
+// generic one), but the key living in a variable literally named after that
+// choice is a needless trap. One generic variable works no matter which
+// preset was picked to reach a custom endpoint.
+func TestGenericKeyEnvIsAFallback(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv(GenericKeyEnv, "generic-key")
+
+	p, err := Open(Spec{Provider: "openai", Model: "m", BaseURL: "http://127.0.0.1:9999/v1"})
+	if err != nil {
+		t.Fatalf("the generic fallback was not used: %v", err)
+	}
+	oa, ok := p.(*OpenAI)
+	if !ok {
+		t.Fatalf("got %T, want *OpenAI", p)
+	}
+	if oa.tr.cfg.Headers["Authorization"] != "Bearer generic-key" {
+		t.Errorf("the key from %s was not used, got header %q", GenericKeyEnv, oa.tr.cfg.Headers["Authorization"])
+	}
+}
+
+// TestPresetKeyEnvWinsOverGeneric protects the common case: a real
+// provider-specific key already set should never be shadowed by a leftover
+// NEMUZ_API_KEY from some other project.
+func TestPresetKeyEnvWinsOverGeneric(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "specific-key")
+	t.Setenv(GenericKeyEnv, "generic-key")
+
+	p, err := Open(Spec{Provider: "anthropic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	an, ok := p.(*Anthropic)
+	if !ok {
+		t.Fatalf("got %T, want *Anthropic", p)
+	}
+	if an.tr.cfg.Headers["x-api-key"] != "specific-key" {
+		t.Errorf("api key header = %q, want the preset-specific value", an.tr.cfg.Headers["x-api-key"])
 	}
 }
 

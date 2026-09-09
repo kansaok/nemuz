@@ -11,10 +11,20 @@ listed under **Changed** with what to do about them.
 
 ## [Unreleased]
 
-One-line install, defaults you don't have to keep retyping, and a real
-back-and-forth chat.
+One-line install, defaults you don't have to keep retyping, a real
+back-and-forth chat, and one API key variable that works no matter which
+preset was picked to reach a custom endpoint.
 
 ### Added
+
+- **`NEMUZ_API_KEY`, a generic fallback for any provider's key.** Pointing
+  `--base-url` at a custom OpenAI-compatible gateway still requires picking
+  some preset's name to get the right wire format — usually `openai`, the
+  most generic one — but the key then had to live in a variable literally
+  named `OPENAI_API_KEY` regardless of what the endpoint actually was, which
+  reads as a bug report waiting to happen. Any preset's key can now also come
+  from `NEMUZ_API_KEY`, tried only when the preset-specific variable is
+  unset, so a provider-specific key already set is never shadowed by it.
 
 - **`nemuz chat`.** Opens the model and the toolset once, then reads one line
   at a time and answers it, instead of requiring a fresh `nemuz run "..."`

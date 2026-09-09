@@ -65,6 +65,14 @@ var presets = map[string]Preset{
 	},
 }
 
+// GenericKeyEnv is read for any provider whose preset-specific variable is
+// unset. It exists for --base-url pointed at a custom OpenAI-compatible
+// gateway: the provider name chosen there (often just "openai", the most
+// generic preset that speaks the shape) does not have to match where the key
+// actually comes from, so one variable works regardless of which preset's
+// name was picked to reach it.
+const GenericKeyEnv = "NEMUZ_API_KEY"
+
 // Names returns the known provider names, sorted.
 func Names() []string {
 	out := make([]string, 0, len(presets))
@@ -108,9 +116,12 @@ func Open(spec Spec) (llm.Provider, error) {
 	key := spec.APIKey
 	if key == "" && preset.KeyEnv != "" {
 		key = os.Getenv(preset.KeyEnv)
-		if key == "" {
-			return nil, fmt.Errorf("provider: %s needs an API key; set %s", name, preset.KeyEnv)
-		}
+	}
+	if key == "" && preset.KeyEnv != "" {
+		key = os.Getenv(GenericKeyEnv)
+	}
+	if key == "" && preset.KeyEnv != "" {
+		return nil, fmt.Errorf("provider: %s needs an API key; set %s (or the generic %s)", name, preset.KeyEnv, GenericKeyEnv)
 	}
 
 	model := spec.Model

@@ -462,6 +462,23 @@ journal digest on every replay.
 Adding a vendor that speaks the OpenAI shape is one line in a table, not an
 adapter.
 
+Pointing `--base-url` at a custom OpenAI-compatible gateway means picking some
+preset's name just to get the right wire format — often `openai`, the most
+generic one — even though the key has nothing to do with OpenAI itself. Rather
+than requiring the key to live in a variable literally named after that
+choice, any provider's key can also come from the generic `NEMUZ_API_KEY`,
+which is tried whenever the preset-specific variable is unset:
+
+```bash
+nemuz config set provider openai
+nemuz config set base-url https://your-gateway.example/v1
+export NEMUZ_API_KEY=...       # instead of OPENAI_API_KEY
+nemuz chat --workspace .
+```
+
+A provider-specific variable, when set, always wins over `NEMUZ_API_KEY` — the
+generic one only fills in when nothing more specific was said.
+
 ## Plugins
 
 A plugin is any process that speaks newline-delimited JSON-RPC on stdio. It gets
