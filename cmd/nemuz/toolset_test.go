@@ -396,3 +396,26 @@ func TestWorkspaceIsWritableButNotExecutable(t *testing.T) {
 		t.Fatalf("a script written into the workspace was executed: %s", res.Content)
 	}
 }
+
+// TestSandboxStatusReflectsWhatTheWorkerAchieved is what makes the reported
+// status honest: it comes from the worker's own manifest, not a guess made by
+// the host before the worker ever ran. A worker whose seccomp filter failed to
+// install must not report success it never achieved.
+func TestSandboxStatusReflectsWhatTheWorkerAchieved(t *testing.T) {
+	requireLandlock(t)
+	useRealBinary(t)
+	dir := t.TempDir()
+
+	ts, err := buildToolset(context.Background(), toolsetOptions{Workspace: dir, Sandbox: SandboxOn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ts.Close()
+
+	if !strings.Contains(ts.Sandbox, "landlock-v") {
+		t.Errorf("sandbox status is %q, want it to name the Landlock ABI", ts.Sandbox)
+	}
+	if !strings.Contains(ts.Sandbox, "seccomp") {
+		t.Errorf("sandbox status is %q, want it to report seccomp on a kernel that supports it", ts.Sandbox)
+	}
+}

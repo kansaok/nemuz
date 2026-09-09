@@ -28,6 +28,9 @@ type Server struct {
 	Version string
 	// Tools are served. Names are used as declared; the host namespaces them.
 	Tools *tool.Registry
+	// Sandbox, if set, is reported in the manifest as what this process
+	// actually achieved — not what it was asked to achieve. See Manifest.Sandbox.
+	Sandbox string
 
 	// OnInitialize is called with the host's parameters before the manifest is
 	// returned, for servers that need the workspace.
@@ -147,7 +150,7 @@ func (s *Server) handle(ctx context.Context, req Request) Response {
 }
 
 func (s *Server) manifest() Manifest {
-	m := Manifest{Protocol: ProtocolVersion, Name: s.Name, Version: s.Version}
+	m := Manifest{Protocol: ProtocolVersion, Name: s.Name, Version: s.Version, Sandbox: s.Sandbox}
 	if m.Version == "" {
 		m.Version = "0.0.0"
 	}

@@ -34,6 +34,13 @@ func TestMain(m *testing.M) {
 // runChild restricts itself, performs one filesystem operation, and reports the
 // outcome through its exit code: 0 allowed, 3 denied, 4 unexpected failure.
 func runChild() int {
+	// Seccomp child roles skip the Landlock setup below entirely; they are
+	// dispatched separately in seccomp_linux_test.go, which shares this
+	// process's TestMain because Go allows only one per package.
+	if role := os.Getenv(envRole); strings.HasPrefix(role, "seccomp-") {
+		return runSeccompChild(role)
+	}
+
 	rules := Rules{}
 	if d := os.Getenv(envAllow); d != "" {
 		rules.Read = strings.Split(d, ":")

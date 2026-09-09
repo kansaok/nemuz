@@ -92,6 +92,12 @@ type Manifest struct {
 	Name     string     `json:"name"`
 	Version  string     `json:"version"`
 	Tools    []ToolSpec `json:"tools"`
+	// Sandbox describes what confinement the plugin process actually
+	// achieved, for plugins in a position to know — nemuz's own tool worker
+	// reports it here because it is the only party that knows whether its
+	// seccomp filter actually installed. Third-party plugins normally leave
+	// this empty; it is not part of the contract they must satisfy.
+	Sandbox string `json:"sandbox,omitempty"`
 }
 
 // ToolSpec describes one tool a plugin provides.

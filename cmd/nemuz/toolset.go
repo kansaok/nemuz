@@ -151,11 +151,14 @@ func (ts *toolset) addBuiltins(ctx context.Context, root string, mode SandboxMod
 			ts.Sandbox = "unavailable"
 			return ts.addBuiltinsInProcess(root, allowExec)
 		}
-		ts.Sandbox = fmt.Sprintf("landlock-v%d", abi)
-		if len(allowExec) > 0 {
-			// Recorded in the journal, so a turn keeps evidence of how wide
-			// its confinement actually was.
-			ts.Sandbox += "+exec"
+		// addBuiltinsConfined already set ts.Sandbox from the worker's own
+		// report. Fall back to the host-side ABI guess only if the worker
+		// somehow reported nothing.
+		if ts.Sandbox == "" {
+			ts.Sandbox = fmt.Sprintf("landlock-v%d", abi)
+			if len(allowExec) > 0 {
+				ts.Sandbox += "+exec"
+			}
 		}
 		return nil
 
@@ -239,5 +242,15 @@ func (ts *toolset) addBuiltinsConfined(ctx context.Context, root string, allowEx
 	if err != nil {
 		return err
 	}
-	return ts.Registry.Register(tools...)
+	if err := ts.Registry.Register(tools...); err != nil {
+		return err
+	}
+
+	// The worker is the only party that knows whether its own seccomp filter
+	// actually installed, so its manifest — not a guess made here before it
+	// ever ran — is what ts.Sandbox is set from.
+	if reported := client.Manifest().Sandbox; reported != "" {
+		ts.Sandbox = reported
+	}
+	return nil
 }

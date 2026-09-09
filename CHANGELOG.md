@@ -13,6 +13,61 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.12.0] — 2026-09-09
+
+seccomp, layered under Landlock.
+
+### Added
+
+- **A hand-rolled seccomp filter**, applied in the confined tool worker
+  alongside Landlock. Landlock says which files a process may touch; this says
+  which syscalls it may make at all. Once `--allow-exec` lets an agent run real
+  programs, that gap matters — Landlock's file rules say nothing about `ptrace`,
+  `mount`, or loading a kernel module.
+
+  It is a fixed denylist, not an allowlist — enumerating every syscall `go
+  build` or `bash` might make is as impractical as enumerating binaries was for
+  Landlock, and would break on first real use. The denylist covers process
+  introspection and injection, filesystem namespace manipulation, kernel module
+  and code loading, and a handful of privileged operations. Ordinary
+  networking, deliberately, is not touched: distinguishing a raw socket from a
+  normal one needs inspecting `socket()`'s arguments, which doubles the risk of
+  a subtly wrong BPF program for a narrower win. Stated in the README as a gap,
+  not hidden.
+
+  Written by hand rather than via a cgo binding to libseccomp, the same choice
+  already made for Landlock, metrics, and the journal: syscall numbers come
+  from `golang.org/x/sys/unix`, which resolves them correctly per architecture
+  at compile time, so the BPF program itself is the only part written from
+  scratch.
+
+- **`nemuz doctor` checks seccomp separately from Landlock.** A build that
+  computes the right BPF program and never installs it, or installs it
+  incorrectly, would pass every other check. The probe spawns the confined
+  worker and has it attempt `ptrace(PTRACE_TRACEME)` — a call that succeeds by
+  default, so any refusal at all proves the filter is doing something. Reported
+  as a warning rather than a failure: an old kernel without
+  `CONFIG_SECCOMP_FILTER` should not read as "the sandbox is broken" the way a
+  Landlock leak would, since Landlock's file confinement still holds on its own.
+
+- **The plugin protocol's `Manifest` gained an optional `Sandbox` field.**
+  Whether seccomp actually installed is something only the worker process can
+  know, so it reports its own achieved confinement — `landlock-v1+seccomp+exec`
+  — back to the host through the same handshake that already carries its name
+  and tools, rather than the host computing a status string before the worker
+  has even run.
+
+### Fixed, before it shipped
+
+Real per-architecture testing caught two things a single-platform build would
+have missed entirely:
+
+- **`iopl` and `ioperm` do not exist on arm64.** They are x86-specific raw I/O
+  port syscalls with no ARM equivalent; `unix.SYS_IOPL` simply is not a defined
+  constant there. `make cross` — added in 0.11.1 for exactly this reason —
+  caught the arm64 build failure before it could reach a release. The two
+  syscalls now live in a small per-arch file, denied only where they exist.
+
 ## [0.11.1] — 2026-09-09
 
 ### Fixed
@@ -563,7 +618,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/kansaok/nemuz/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/kansaok/nemuz/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/kansaok/nemuz/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/kansaok/nemuz/compare/v0.10.0...v0.10.1

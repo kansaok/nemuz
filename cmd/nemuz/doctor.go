@@ -61,6 +61,15 @@ func runDoctor(out io.Writer) error {
 		} else {
 			checks = append(checks, check{"sandbox", "ok", "verified — the tool worker cannot read outside its workspace"})
 		}
+
+		// A separate layer, checked separately: Landlock says nothing about
+		// which syscalls are callable at all, so its own success proves
+		// nothing about whether the seccomp filter installed correctly.
+		if err := probeSeccomp(); err != nil {
+			checks = append(checks, check{"seccomp", "warn", err.Error()})
+		} else {
+			checks = append(checks, check{"seccomp", "ok", "verified — ptrace and similar syscalls are refused by the kernel"})
+		}
 	}
 
 	paths, err := config.Resolve()
@@ -106,6 +115,45 @@ func symbol(status string) string {
 	default:
 		return " FAIL "
 	}
+}
+
+// probeSeccomp spawns the sandboxed tool worker and confirms the kernel
+// refuses ptrace — a syscall with no legitimate use in a tool call, and one
+// that succeeds by default, which is what makes its refusal meaningful.
+//
+// This is reported as a warning rather than a failure when it does not hold:
+// seccomp is defense in depth layered under Landlock, and an old kernel
+// without CONFIG_SECCOMP_FILTER should not read as "the sandbox is broken" the
+// way a Landlock leak would.
+func probeSeccomp() error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("could not locate nemuz: %w", err)
+	}
+	dir, err := os.MkdirTemp("", "nemuz-probe-*")
+	if err != nil {
+		return fmt.Errorf("could not create a probe workspace: %w", err)
+	}
+	defer os.RemoveAll(dir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, self, "tool-worker", "--workspace", dir, "--self-check-syscall")
+	cmd.Env = []string{}
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("the seccomp probe did not run: %w", err)
+	}
+
+	var result selfCheckResult
+	if err := json.Unmarshal(out, &result); err != nil {
+		return fmt.Errorf("the seccomp probe returned %q", strings.TrimSpace(string(out)))
+	}
+	if !result.Denied {
+		return fmt.Errorf("ptrace was not refused (%s) — this kernel may lack CONFIG_SECCOMP_FILTER", result.Error)
+	}
+	return nil
 }
 
 // probeConfinement spawns the sandboxed tool worker and confirms the kernel

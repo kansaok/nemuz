@@ -444,6 +444,39 @@ connection along with the tools, which is the opposite of useful.
 | `on` | Require confinement; refuse to run without it. |
 | `off` | Run the tools in-process, unconfined. Recorded in the journal. |
 
+`nemuz doctor` now checks two layers separately:
+
+```
+  ok    kernel     Landlock ABI v1 available
+  ok    sandbox    verified — the tool worker cannot read outside its workspace
+  ok    seccomp    verified — ptrace and similar syscalls are refused by the kernel
+```
+
+**seccomp is layered under Landlock.** Landlock answers *which files* a process
+may touch; seccomp answers *which syscalls* it may make at all, regardless of
+path. Once `--allow-exec` lets an agent run real programs, Landlock alone says
+nothing about `ptrace`, `mount`, or loading a kernel module — none of those are
+about a file.
+
+It is a denylist, not an allowlist: a short, fixed set of syscalls with
+essentially no legitimate use inside a coding-agent tool call and a clear
+history in exploits — process introspection (`ptrace`, cross-process memory
+access), filesystem namespace manipulation (`mount`, `chroot`), kernel module
+and code loading, and a handful of privileged operations. Everything else,
+ordinary networking included, is left alone. An allowlist would need enumerating
+every syscall `go build` or `bash` might ever make — as impractical as
+enumerating binaries was for Landlock, and certain to break on the first real
+use.
+
+Stated rather than implied: this does not distinguish a raw socket from an
+ordinary TCP connection, which would need inspecting `socket()`'s arguments.
+Defense in depth, not a complete network policy.
+
+The status the journal records — `landlock-v1+seccomp+exec` — comes from the
+confined worker's own report of what it achieved, not a guess made before it
+ran. A kernel without `CONFIG_SECCOMP_FILTER` still gets Landlock's file
+confinement; that gap is reported, not hidden.
+
 ## Running commands
 
 With `--allow-exec`, the agent gets a `run_command` tool. Without it, there is
@@ -653,7 +686,6 @@ cannot be rebuilt from it.
 - [x] The idle curator: re-verification, retirement, quarantine expiry
 - [x] A public API and CI that enforces the no-network and sandbox claims
 - [ ] Consolidating overlapping skills, which needs a model
-- [ ] seccomp filters and network capabilities
 - [ ] Sandbox backends for macOS and Windows
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp
 - [x] OpenAI-compatible HTTP API, with replayable completion ids
@@ -662,6 +694,8 @@ cannot be rebuilt from it.
 - [ ] OpenTelemetry traces — deferred: the SDK would cost more than the whole binary
 - [x] Full-text search over every turn, and usage accounting
 - [x] An exec tool, confined so a command can write only to the workspace
+- [x] seccomp, layered under Landlock: a fixed denylist for syscalls with no
+      legitimate use in a tool call
 
 ## Changelog
 

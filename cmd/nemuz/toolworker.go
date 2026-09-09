@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/kansaok/nemuz/internal/plugin"
 	"github.com/kansaok/nemuz/internal/sandbox"
@@ -29,6 +30,7 @@ func toolWorkerCmd() *cobra.Command {
 	var workspace string
 	var sandboxed bool
 	var selfCheck string
+	var selfCheckSyscall bool
 	var allowExec []string
 	var scratch string
 
@@ -38,19 +40,20 @@ func toolWorkerCmd() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runToolWorker(cmd, workspace, sandboxed, selfCheck, allowExec, scratch)
+			return runToolWorker(cmd, workspace, sandboxed, selfCheck, selfCheckSyscall, allowExec, scratch)
 		},
 	}
 	c.Flags().StringVarP(&workspace, "workspace", "w", "", "the only directory tree this worker may touch")
 	c.Flags().BoolVar(&sandboxed, "sandbox", true, "apply kernel restrictions before serving")
 	c.Flags().StringVar(&selfCheck, "self-check", "", "after restricting, try to read this path and report the result instead of serving")
+	c.Flags().BoolVar(&selfCheckSyscall, "self-check-syscall", false, "after restricting, try a seccomp-denied syscall and report the result instead of serving")
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program the agent may run, as name=/absolute/path; repeatable")
 	c.Flags().StringVar(&scratch, "scratch", "", "private directory commands may use for temporary files")
 	_ = c.MarkFlagRequired("workspace")
 	return c
 }
 
-func runToolWorker(cmd *cobra.Command, workspace string, sandboxed bool, selfCheck string, allowExec []string, scratch string) error {
+func runToolWorker(cmd *cobra.Command, workspace string, sandboxed bool, selfCheck string, selfCheckSyscall bool, allowExec []string, scratch string) error {
 	// The path is resolved before the sandbox closes, so the grant names the
 	// same directory the tools will later open.
 	root, err := plugin.CleanWorkspace(workspace)
@@ -63,7 +66,27 @@ func runToolWorker(cmd *cobra.Command, workspace string, sandboxed bool, selfChe
 		return err
 	}
 
+	seccompStatus := "off"
 	if sandboxed {
+		// Seccomp is layered under Landlock: it blocks a class of syscall
+		// entirely regardless of path, which the file-based rules below say
+		// nothing about. Installed first, since it has nothing to do with the
+		// directories being confined and either can fail independently.
+		//
+		// Its absence does not abort startup: an old kernel without
+		// CONFIG_SECCOMP_FILTER should not lose the file confinement Landlock
+		// can still provide. What it must not do is go unreported — the
+		// manifest below carries whichever of "seccomp" and "landlock-vN" this
+		// process actually achieved, not what it merely attempted.
+		switch err := sandbox.RestrictSyscalls(); {
+		case err == nil:
+			seccompStatus = "seccomp"
+		case errors.Is(err, sandbox.ErrSeccompUnsupported):
+			seccompStatus = "unavailable"
+		default:
+			return fmt.Errorf("tool-worker: %w", err)
+		}
+
 		rules := sandbox.Rules{Write: []string{root}}
 		if len(programs) > 0 {
 			// Running anything means reading the loader and the libraries it
@@ -102,6 +125,9 @@ func runToolWorker(cmd *cobra.Command, workspace string, sandboxed bool, selfChe
 		}
 	}
 
+	if selfCheckSyscall {
+		return reportSyscallSelfCheck(cmd.OutOrStdout(), seccompStatus)
+	}
 	if selfCheck != "" {
 		return reportSelfCheck(cmd.OutOrStdout(), selfCheck)
 	}
@@ -122,7 +148,22 @@ func runToolWorker(cmd *cobra.Command, workspace string, sandboxed bool, selfChe
 		}
 	}
 
-	server := &plugin.Server{Name: toolWorkerName, Version: Version, Tools: tools}
+	achieved := "off"
+	if sandboxed {
+		if abi, err := sandbox.LandlockABI(); err == nil {
+			achieved = fmt.Sprintf("landlock-v%d", abi)
+		} else {
+			achieved = "unavailable"
+		}
+		if seccompStatus == "seccomp" {
+			achieved += "+seccomp"
+		}
+		if len(allowExec) > 0 {
+			achieved += "+exec"
+		}
+	}
+
+	server := &plugin.Server{Name: toolWorkerName, Version: Version, Tools: tools, Sandbox: achieved}
 	return server.Serve(cmd.Context(), os.Stdin, os.Stdout)
 }
 
@@ -159,9 +200,32 @@ func existingPaths(paths []string) []string {
 
 // selfCheckResult is what a confinement probe reports back to the host.
 type selfCheckResult struct {
-	// Denied is true when the kernel refused the read.
+	// Denied is true when the kernel refused the operation.
 	Denied bool   `json:"denied"`
 	Error  string `json:"error,omitempty"`
+}
+
+// reportSyscallSelfCheck attempts ptrace(PTRACE_TRACEME) — a syscall on the
+// seccomp denylist with no legitimate use in a tool call — and reports whether
+// the kernel refused it.
+//
+// This is what makes the seccomp claim checkable rather than asserted: a
+// filter that failed to install, or a build that computed the BPF program
+// wrong, shows up here as "denied": false instead of as a silent gap.
+func reportSyscallSelfCheck(out io.Writer, seccompStatus string) error {
+	result := selfCheckResult{}
+	if seccompStatus != "seccomp" {
+		result.Error = "seccomp was not installed (status: " + seccompStatus + ")"
+	} else if err := attemptPtrace(); err != nil {
+		result.Denied = errors.Is(err, syscall.EPERM)
+		result.Error = err.Error()
+	}
+	body, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	_, err = out.Write(append(body, '\n'))
+	return err
 }
 
 // reportSelfCheck attempts a read that the sandbox should refuse and reports
