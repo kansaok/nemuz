@@ -13,6 +13,20 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.11.1] — 2026-09-09
+
+### Fixed
+
+- **nemuz stopped compiling for macOS and Windows, and only the release said
+  so.** The sandbox constants added in 0.11.0 lived in the Linux-only file, so
+  every non-Linux target failed to build. CI compiles one target and passed;
+  the release builds six and failed, which is the worst place for a portability
+  break to surface.
+
+  The non-Linux sandbox now declares the same names, empty, so callers compile
+  everywhere. And `make cross` builds all six targets, in CI, so the next such
+  break fails in a pull request rather than at a tag.
+
 ## [0.11.0] — 2026-09-09
 
 The agent can run commands, and the sandbox still holds.
@@ -549,7 +563,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/kansaok/nemuz/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/kansaok/nemuz/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/kansaok/nemuz/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/kansaok/nemuz/compare/v0.9.2...v0.10.0

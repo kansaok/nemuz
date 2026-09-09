@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT)
 
-.PHONY: all build test vet lint bench clean
+.PHONY: all build test vet lint bench cross clean
 
 all: lint test build
 
@@ -22,6 +22,15 @@ vet:
 # lines and became impossible to review, test, or merge without conflict.
 lint: vet
 	@./bench/filesize.sh
+
+# cross builds every target the release does. Without it a Linux-only change
+# compiles fine here and fails when a tag is pushed.
+cross:
+	@for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do \
+		GOOS=$${target%/*} GOARCH=$${target#*/} $(GO) build -o /dev/null ./... \
+			&& printf 'ok    %s\n' "$$target" \
+			|| { printf 'FAIL  %s\n' "$$target"; exit 1; }; \
+	done
 
 bench: build
 	@./bench/size.sh

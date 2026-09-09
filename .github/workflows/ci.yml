@@ -59,6 +59,12 @@ jobs:
       - name: Build
         run: make build
 
+      # Releases build six targets; CI built one. A portability break therefore
+      # showed up first in a release, which is the worst place to find one —
+      # exactly what happened when the sandbox gained Linux-only constants.
+      - name: Cross-compile every release target
+        run: make cross
+
       - name: Size and startup budgets
         run: make bench
 
