@@ -12,10 +12,27 @@ listed under **Changed** with what to do about them.
 ## [Unreleased]
 
 One-line install, defaults you don't have to keep retyping, a real
-back-and-forth chat, and one API key variable that works no matter which
-preset was picked to reach a custom endpoint.
+back-and-forth chat, one API key variable that works no matter which preset
+was picked to reach a custom endpoint, and an agent that can delegate.
 
 ### Added
+
+- **A `delegate` tool, so one agent can hand a sub-task to another agent
+  turn.** The sub-agent gets the exact same model, toolset, and sandbox as
+  its caller, and returns only its final answer — not its whole step-by-step
+  transcript — as the tool result. The sub-turn is recorded exactly like any
+  other: its own turn id, its own `nemuz journal list` entry, independently
+  replayable. It never reviews or curates on its own, since those judge
+  whether talking to the *operator* was worth remembering, and answering
+  another agent isn't that.
+
+  Delegation nests, bounded by `--delegate-depth` (default 2, persisted via
+  `nemuz config set delegate-depth`; `0` disables it — the tool is then not
+  even offered to the model). The budget travels on the request context and
+  is spent per call chain, decremented one level for each nested delegate
+  call, rather than living on the tool or the session — both are shared
+  across every turn in a `nemuz chat` process, so either would have let one
+  sub-agent's spending affect another's unrelated budget.
 
 - **`NEMUZ_API_KEY`, a generic fallback for any provider's key.** Pointing
   `--base-url` at a custom OpenAI-compatible gateway still requires picking

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"text/tabwriter"
 
@@ -18,21 +19,22 @@ const defaultSystemPrompt = "You are a careful assistant. Use the tools to answe
 
 func runCmd() *cobra.Command {
 	var (
-		providerName string
-		model        string
-		baseURL      string
-		workspace    string
-		system       string
-		maxSteps     int
-		pluginCmds   []string
-		allowNet     []string
-		allowExec    []string
-		useSkills    bool
-		useMemories  bool
-		doReview     bool
-		reviewModel  string
-		sandboxMode  string
-		doCurate     bool
+		providerName  string
+		model         string
+		baseURL       string
+		workspace     string
+		system        string
+		maxSteps      int
+		pluginCmds    []string
+		allowNet      []string
+		allowExec     []string
+		useSkills     bool
+		useMemories   bool
+		doReview      bool
+		reviewModel   string
+		sandboxMode   string
+		doCurate      bool
+		delegateDepth int
 	)
 
 	c := &cobra.Command{
@@ -61,6 +63,7 @@ func runCmd() *cobra.Command {
 			applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
 			applyBoolDefault(cmd, "skills", &useSkills, "skills", settings)
 			applyBoolDefault(cmd, "memories", &useMemories, "memories", settings)
+			applyIntDefault(cmd, "delegate-depth", &delegateDepth, "delegate-depth", settings)
 
 			p, err := provider.Open(provider.Spec{
 				Provider: providerName,
@@ -103,7 +106,12 @@ func runCmd() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			outcome, turnID, runErr := sess.runTurn(cmd, out, cmdArgs[0], true)
+			if err := registerDelegateTool(sess, cmd, out, delegateDepth); err != nil {
+				return err
+			}
+
+			ctx := withDelegateDepth(context.Background(), delegateDepth)
+			outcome, turnID, runErr := sess.runTurn(ctx, cmd, out, cmdArgs[0], true)
 			if runErr != nil {
 				return runErr
 			}
@@ -134,6 +142,8 @@ func runCmd() *cobra.Command {
 	c.Flags().BoolVar(&doReview, "review", true, "after the turn, decide what was worth remembering")
 	c.Flags().StringVar(&reviewModel, "review-model", "", "cheaper model for the review (defaults to --model)")
 	c.Flags().BoolVar(&doCurate, "curate", true, "once a day, re-verify and tidy the agent's own skills")
+	c.Flags().IntVar(&delegateDepth, "delegate-depth", DefaultDelegateDepth,
+		"levels an agent may delegate a sub-task to another agent turn; 0 disables delegation")
 	return c
 }
 

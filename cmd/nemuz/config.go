@@ -47,6 +47,19 @@ func applyBoolDefault(cmd *cobra.Command, flag string, dst *bool, key string, s 
 	}
 }
 
+// applyIntDefault is applyStringDefault for an integer-valued setting such as
+// delegate-depth.
+func applyIntDefault(cmd *cobra.Command, flag string, dst *int, key string, s *config.Settings) {
+	if cmd.Flags().Changed(flag) {
+		return
+	}
+	if v, ok := s.Get(key); ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			*dst = n
+		}
+	}
+}
+
 func configCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "config",

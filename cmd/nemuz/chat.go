@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,21 +17,22 @@ import (
 
 func chatCmd() *cobra.Command {
 	var (
-		providerName string
-		model        string
-		baseURL      string
-		workspace    string
-		system       string
-		maxSteps     int
-		pluginCmds   []string
-		allowNet     []string
-		allowExec    []string
-		useSkills    bool
-		useMemories  bool
-		doReview     bool
-		reviewModel  string
-		sandboxMode  string
-		doCurate     bool
+		providerName  string
+		model         string
+		baseURL       string
+		workspace     string
+		system        string
+		maxSteps      int
+		pluginCmds    []string
+		allowNet      []string
+		allowExec     []string
+		useSkills     bool
+		useMemories   bool
+		doReview      bool
+		reviewModel   string
+		sandboxMode   string
+		doCurate      bool
+		delegateDepth int
 	)
 
 	c := &cobra.Command{
@@ -61,6 +63,7 @@ func chatCmd() *cobra.Command {
 			applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
 			applyBoolDefault(cmd, "skills", &useSkills, "skills", settings)
 			applyBoolDefault(cmd, "memories", &useMemories, "memories", settings)
+			applyIntDefault(cmd, "delegate-depth", &delegateDepth, "delegate-depth", settings)
 
 			p, err := provider.Open(provider.Spec{
 				Provider: providerName,
@@ -108,11 +111,15 @@ func chatCmd() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
+			if err := registerDelegateTool(sess, cmd, out, delegateDepth); err != nil {
+				return err
+			}
+
 			fmt.Fprintf(out, "nemuz %s · %s · %s · sandbox %s\n", model, p.Name(), ts.Workspace, ts.Sandbox)
 			fmt.Fprintln(out, "Type /exit to leave.")
 			fmt.Fprintln(out)
 
-			return runChatLoop(cmd, cmd.InOrStdin(), out, sess)
+			return runChatLoop(cmd, cmd.InOrStdin(), out, sess, delegateDepth)
 		},
 	}
 
@@ -131,12 +138,16 @@ func chatCmd() *cobra.Command {
 	c.Flags().BoolVar(&doReview, "review", true, "after each turn, decide what was worth remembering")
 	c.Flags().StringVar(&reviewModel, "review-model", "", "cheaper model for the review (defaults to --model)")
 	c.Flags().BoolVar(&doCurate, "curate", true, "once a day, re-verify and tidy the agent's own skills")
+	c.Flags().IntVar(&delegateDepth, "delegate-depth", DefaultDelegateDepth,
+		"levels an agent may delegate a sub-task to another agent turn; 0 disables delegation")
 	return c
 }
 
 // runChatLoop reads one line at a time and answers each as its own turn,
-// until the input closes or the user asks to leave.
-func runChatLoop(cmd *cobra.Command, in io.Reader, out io.Writer, sess *turnSession) error {
+// until the input closes or the user asks to leave. Each line is a fresh
+// top-level turn, so its delegation budget is reseeded to the full depth
+// rather than carried over from whatever the previous line spent.
+func runChatLoop(cmd *cobra.Command, in io.Reader, out io.Writer, sess *turnSession, delegateDepth int) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -155,7 +166,8 @@ func runChatLoop(cmd *cobra.Command, in io.Reader, out io.Writer, sess *turnSess
 			return nil
 		}
 
-		outcome, turnID, err := sess.runTurn(cmd, out, line, false)
+		ctx := withDelegateDepth(context.Background(), delegateDepth)
+		outcome, turnID, err := sess.runTurn(ctx, cmd, out, line, false)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil

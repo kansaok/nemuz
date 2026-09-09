@@ -112,6 +112,16 @@ func TestSetValidatesEachKeysShape(t *testing.T) {
 		t.Errorf("allow-exec parsed as %v", s.AllowExec)
 	}
 
+	if err := s.Set("delegate-depth", "not-a-number"); err == nil {
+		t.Error("a non-integer value was accepted for delegate-depth")
+	}
+	if err := s.Set("delegate-depth", "-1"); err == nil {
+		t.Error("a negative value was accepted for delegate-depth")
+	}
+	if err := s.Set("delegate-depth", "2"); err != nil || s.DelegateDepth != "2" {
+		t.Errorf("a valid delegate-depth was rejected: %v", err)
+	}
+
 	if err := s.Set("unknown-key", "x"); err == nil {
 		t.Error("an unknown key was accepted by Set")
 	}
@@ -174,6 +184,8 @@ func (s *Settings) mustExampleValue(key string) string {
 		return "auto"
 	case "skills", "memories":
 		return "true"
+	case "delegate-depth":
+		return "2"
 	default:
 		return "example"
 	}

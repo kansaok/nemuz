@@ -63,7 +63,7 @@ func TestChatLoopAnswersEachLineAsATurn(t *testing.T) {
 	var out strings.Builder
 	cmd := &cobra.Command{}
 
-	if err := runChatLoop(cmd, in, &out, sess); err != nil {
+	if err := runChatLoop(cmd, in, &out, sess, DefaultDelegateDepth); err != nil {
 		t.Fatalf("runChatLoop: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestChatLoopStopsOnQuit(t *testing.T) {
 	var out strings.Builder
 	cmd := &cobra.Command{}
 
-	if err := runChatLoop(cmd, in, &out, sess); err != nil {
+	if err := runChatLoop(cmd, in, &out, sess, DefaultDelegateDepth); err != nil {
 		t.Fatalf("runChatLoop: %v", err)
 	}
 }
@@ -95,7 +95,7 @@ func TestChatLoopStopsOnEOFWithNoTrailingCommand(t *testing.T) {
 	var out strings.Builder
 	cmd := &cobra.Command{}
 
-	if err := runChatLoop(cmd, in, &out, sess); err != nil {
+	if err := runChatLoop(cmd, in, &out, sess, DefaultDelegateDepth); err != nil {
 		t.Fatalf("runChatLoop: %v", err)
 	}
 	if !strings.Contains(out.String(), "ok") {
@@ -113,7 +113,7 @@ func TestChatLoopSkipsBlankLines(t *testing.T) {
 	var out strings.Builder
 	cmd := &cobra.Command{}
 
-	if err := runChatLoop(cmd, in, &out, sess); err != nil {
+	if err := runChatLoop(cmd, in, &out, sess, DefaultDelegateDepth); err != nil {
 		t.Fatalf("runChatLoop: %v", err)
 	}
 	if !strings.Contains(out.String(), "answered") {

@@ -180,10 +180,37 @@ nemuz config          # list everything currently saved
 `run`, `serve`, `acp`, `replay`, `consolidate`, `skill eval`/`certify`, and
 `skill curate` all read from this file for the flags they take — provider,
 model, review-model, base-url, sandbox, allow-exec, allow-net, skills,
-memories. A flag passed explicitly on the command line always wins over a
-saved default; the file only fills in what you didn't say this time. Nothing
+memories, delegate-depth. A flag passed explicitly on the command line always
+wins over a saved default; the file only fills in what you didn't say this
+time. Nothing
 here is required — nemuz runs fine with no config file, falling back to its
 built-in defaults exactly as before.
+
+## Delegating to a sub-agent
+
+The agent always has a `delegate` tool: it hands a self-contained sub-task to
+another agent turn — the same model, the same tools, the same workspace — and
+gets back only that turn's final answer, not its whole step-by-step
+transcript. It exists so a task can be broken into independent pieces instead
+of trying to hold a whole plan in one context window.
+
+```bash
+nemuz run "delegate the arithmetic to a sub-agent, then summarise the result"
+```
+
+The sub-agent's turn is recorded exactly like any other — its own turn id,
+its own entry in `nemuz journal list`, replayable on its own. It carries no
+memory of the parent conversation beyond the task description it was given,
+and it never reviews or curates on its own: those judge whether talking to the
+*operator* was worth remembering, and answering to another agent isn't that.
+
+Delegation nests, so a sub-agent can delegate again — bounded by
+`--delegate-depth` (default 2, matching what most tasks need without letting
+a confused model delegate indefinitely). `--delegate-depth 0` disables it —
+the tool is not even offered to the model. The budget is spent per call
+chain: a sub-agent that itself delegates uses one less level than its caller,
+not a fresh budget of its own, and a fresh `nemuz chat` line always starts
+back at the full depth.
 
 ## Memory, and learning without being asked
 

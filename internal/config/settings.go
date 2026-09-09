@@ -18,15 +18,16 @@ import (
 // saved default is a starting point, not a lock-in, and never overrides
 // something the operator just said on this exact invocation.
 type Settings struct {
-	Provider    string   `yaml:"provider,omitempty"`
-	Model       string   `yaml:"model,omitempty"`
-	ReviewModel string   `yaml:"review_model,omitempty"`
-	BaseURL     string   `yaml:"base_url,omitempty"`
-	Sandbox     string   `yaml:"sandbox,omitempty"`
-	AllowExec   []string `yaml:"allow_exec,omitempty"`
-	AllowNet    []string `yaml:"allow_net,omitempty"`
-	Skills      *bool    `yaml:"skills,omitempty"`
-	Memories    *bool    `yaml:"memories,omitempty"`
+	Provider      string   `yaml:"provider,omitempty"`
+	Model         string   `yaml:"model,omitempty"`
+	ReviewModel   string   `yaml:"review_model,omitempty"`
+	BaseURL       string   `yaml:"base_url,omitempty"`
+	Sandbox       string   `yaml:"sandbox,omitempty"`
+	AllowExec     []string `yaml:"allow_exec,omitempty"`
+	AllowNet      []string `yaml:"allow_net,omitempty"`
+	Skills        *bool    `yaml:"skills,omitempty"`
+	Memories      *bool    `yaml:"memories,omitempty"`
+	DelegateDepth string   `yaml:"delegate_depth,omitempty"`
 }
 
 // Keys names every setting `nemuz config` accepts, in the order they are
@@ -35,6 +36,7 @@ type Settings struct {
 var Keys = []string{
 	"provider", "model", "review-model", "base-url",
 	"sandbox", "allow-exec", "allow-net", "skills", "memories",
+	"delegate-depth",
 }
 
 // LoadSettings reads the saved defaults. A missing file is not an error — it
@@ -125,6 +127,8 @@ func (s *Settings) Get(key string) (value string, known bool) {
 		return boolPtrString(s.Skills), true
 	case "memories":
 		return boolPtrString(s.Memories), true
+	case "delegate-depth":
+		return s.DelegateDepth, true
 	default:
 		return "", false
 	}
@@ -166,6 +170,12 @@ func (s *Settings) Set(key, value string) error {
 			return fmt.Errorf("config: memories must be true or false, not %q", value)
 		}
 		s.Memories = &b
+	case "delegate-depth":
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			return fmt.Errorf("config: delegate-depth must be a non-negative integer, not %q", value)
+		}
+		s.DelegateDepth = value
 	default:
 		return fmt.Errorf("config: unknown setting %q; see `nemuz config` for the list", key)
 	}
@@ -193,6 +203,8 @@ func (s *Settings) Unset(key string) error {
 		s.Skills = nil
 	case "memories":
 		s.Memories = nil
+	case "delegate-depth":
+		s.DelegateDepth = ""
 	default:
 		return fmt.Errorf("config: unknown setting %q; see `nemuz config` for the list", key)
 	}

@@ -36,7 +36,11 @@ type turnSession struct {
 // runTurn runs skills, recall, the model, journaling, review, and curation —
 // the sequence every turn goes through, kept in one place so `nemuz run` and
 // `nemuz chat` cannot drift into answering differently for the same prompt.
-func (s *turnSession) runTurn(cmd *cobra.Command, out io.Writer, prompt string, verbose bool) (agent.Outcome, string, error) {
+//
+// ctx carries the model call's cancellation and, when the delegate tool is
+// registered, the remaining delegation depth — so a sub-agent's own runTurn
+// call inherits one less level than its caller rather than a fresh budget.
+func (s *turnSession) runTurn(ctx context.Context, cmd *cobra.Command, out io.Writer, prompt string, verbose bool) (agent.Outcome, string, error) {
 	systemPrompt, skillNames := s.baseSystem, []string(nil)
 	var err error
 	if s.useSkills {
@@ -89,7 +93,7 @@ func (s *turnSession) runTurn(cmd *cobra.Command, out io.Writer, prompt string, 
 		fmt.Fprintln(out)
 	}
 
-	outcome, runErr := a.Run(context.Background(), prompt)
+	outcome, runErr := a.Run(ctx, prompt)
 	if closeErr := w.Close(); closeErr != nil && runErr == nil {
 		runErr = closeErr
 	}
