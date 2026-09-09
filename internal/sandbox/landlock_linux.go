@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -94,6 +95,71 @@ func Available() bool {
 	_, err := LandlockABI()
 	return err == nil
 }
+
+// SystemReadDirs are directories a program reads without running anything from
+// them — configuration the loader and ordinary tools consult.
+var SystemReadDirs = []string{"/etc"}
+
+// SystemExecDirs get read and execute when the agent is allowed to run
+// commands.
+//
+// The library directories are here, not in SystemReadDirs, and that surprised
+// me: granting execute on /usr/bin — or even on /usr/bin/ls exactly — is not
+// enough to run it. A dynamically linked program is started by its ELF
+// interpreter, and the kernel needs execute on the interpreter too. Read is not
+// enough. Since the interpreter lives under the library directories, allowing
+// exec at all means allowing execute across the system tree.
+//
+// That is a real loosening, and enumerating binaries would not avoid it. A
+// command also spawns helpers — make runs sh, sh runs cc, go runs the linker —
+// so a narrow list ends with the sandbox switched off entirely, which is worse
+// than a wide grant.
+//
+// What this does not widen is where the process may write. Even with exec fully
+// allowed, the only writable paths stay the workspace and a handful of device
+// files, so a command can build and test and still cannot change anything else
+// on the machine.
+var SystemExecDirs = []string{"/usr", "/lib", "/lib64", "/bin", "/sbin"}
+
+// ResolverFiles are the files a program reads to look up a hostname.
+//
+// Granting /etc is not enough for them. On WSL /etc/resolv.conf is a symlink to
+// /mnt/wsl/resolv.conf, and under systemd-resolved it points into /run —
+// Landlock follows the link to the real inode, finds it outside every grant,
+// and the resolver silently falls back to localhost. The failure surfaces as a
+// DNS error that has nothing to do with DNS.
+//
+// ResolvedPaths turns these into the locations they actually point at.
+var ResolverFiles = []string{"/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf"}
+
+// ResolvedPaths follows symlinks and keeps only the targets that exist.
+//
+// Landlock refuses a rule for a path it cannot open, so one missing file would
+// otherwise make the whole ruleset fail to build.
+func ResolvedPaths(paths []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range paths {
+		resolved, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			continue
+		}
+		if seen[resolved] {
+			continue
+		}
+		seen[resolved] = true
+		out = append(out, resolved)
+	}
+	return out
+}
+
+// SystemDevices are the device files ordinary programs expect to exist.
+//
+// They are named individually rather than granting /dev, which holds disks,
+// memory and terminals. /dev/null and /dev/zero need writing as well as
+// reading, because a program that opens null for output is doing the normal
+// thing.
+var SystemDevices = []string{"/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"}
 
 // Rules is the set of directories a confined process may touch.
 //
@@ -175,7 +241,7 @@ func Restrict(r Rules) error {
 	}
 	for _, g := range grants {
 		for _, path := range g.paths {
-			if err := addPathRule(rulesetFD, path, g.access); err != nil {
+			if err := addPathRule(rulesetFD, path, g.access, abi); err != nil {
 				return err
 			}
 		}
@@ -187,13 +253,42 @@ func Restrict(r Rules) error {
 	return nil
 }
 
-// addPathRule grants access beneath one directory.
-func addPathRule(rulesetFD int, path string, access uint64) error {
+// fileAccess is the subset of rights that mean anything for a regular file.
+//
+// The rest — making and removing entries, reading a directory — describe
+// operations only a directory can have, and Landlock rejects a rule that claims
+// them for a file. Granting /dev/null with the directory set is exactly that
+// mistake, and it fails the whole ruleset rather than the one rule.
+func fileAccess(abi int) uint64 {
+	a := accessExecute | accessReadFile | accessWriteFile
+	if abi >= 3 {
+		a |= accessTruncate
+	}
+	return a
+}
+
+// addPathRule grants access beneath one path.
+//
+// A path may be a directory or a single file. Naming a file is how a narrow
+// grant is expressed — /dev/null rather than all of /dev — so the access is
+// masked to what a file can actually have.
+func addPathRule(rulesetFD int, path string, access uint64, abi int) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("sandbox: open %s for a rule: %w", path, err)
 	}
 	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("sandbox: inspect %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		access &= fileAccess(abi)
+		if access == 0 {
+			return fmt.Errorf("sandbox: %s is a file, and none of the requested access applies to files", path)
+		}
+	}
 
 	// struct landlock_path_beneath_attr is packed: a u64 followed immediately
 	// by an s32, with no alignment padding. Building the 12 bytes by hand is

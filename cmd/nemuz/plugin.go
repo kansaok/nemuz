@@ -26,6 +26,8 @@ func pluginCmd() *cobra.Command {
 
 func pluginInspectCmd() *cobra.Command {
 	var workspace string
+	var allowNet []string
+	var allowExec []string
 	c := &cobra.Command{
 		Use:   "inspect <command>",
 		Short: "Start a plugin and show what it offers, and what it would be granted",
@@ -45,7 +47,7 @@ func pluginInspectCmd() *cobra.Command {
 			m := client.Manifest()
 			fmt.Fprintf(out, "%s %s\n  protocol %d · workspace %s\n\n", m.Name, m.Version, m.Protocol, ws)
 
-			policy := plugin.WorkspacePolicy{Workspace: ws}
+			policy := plugin.WorkspacePolicy{Workspace: ws, AllowNet: allowNet, AllowExec: allowExec}
 			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "TOOL\tASKED FOR\tGRANTED")
 			for _, spec := range m.Tools {
@@ -64,11 +66,15 @@ func pluginInspectCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVarP(&workspace, "workspace", "w", ".", "workspace to offer the plugin")
+	c.Flags().StringArrayVar(&allowNet, "allow-net", nil, "network destination to approve; repeatable")
+	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program to approve; repeatable")
 	return c
 }
 
 func pluginCallCmd() *cobra.Command {
 	var workspace string
+	var allowNet []string
+	var allowExec []string
 	c := &cobra.Command{
 		Use:   "call <command> <tool> [json-arguments]",
 		Short: "Run one of a plugin's tools directly",
@@ -85,11 +91,18 @@ func pluginCallCmd() *cobra.Command {
 				payload = json.RawMessage(args[2])
 			}
 
-			client, _, err := startPlugin(cmd.Context(), args[0], workspace)
+			client, ws, err := startPlugin(cmd.Context(), args[0], workspace)
 			if err != nil {
 				return err
 			}
 			defer client.Close()
+
+			// Reviewed before calling, so this command exercises exactly what a
+			// turn would — a tool the host would refuse must be refused here.
+			policy := plugin.WorkspacePolicy{Workspace: ws, AllowNet: allowNet, AllowExec: allowExec}
+			if _, err := client.Tools(policy); err != nil {
+				return err
+			}
 
 			result, err := client.Call(cmd.Context(), args[1], payload)
 			if err != nil {
@@ -105,6 +118,8 @@ func pluginCallCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVarP(&workspace, "workspace", "w", ".", "workspace to offer the plugin")
+	c.Flags().StringArrayVar(&allowNet, "allow-net", nil, "network destination to approve; repeatable")
+	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program to approve; repeatable")
 	return c
 }
 

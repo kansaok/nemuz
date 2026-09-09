@@ -444,6 +444,47 @@ connection along with the tools, which is the opposite of useful.
 | `on` | Require confinement; refuse to run without it. |
 | `off` | Run the tools in-process, unconfined. Recorded in the journal. |
 
+## Running commands
+
+With `--allow-exec`, the agent gets a `run_command` tool. Without it, there is
+no way to run anything at all.
+
+```bash
+nemuz run "run the tests and tell me what broke" \
+  --allow-exec go --allow-exec make
+```
+
+**There is no shell.** Arguments go to the operating system directly, so pipes,
+globs and `&&` do not work and there is no quoting to get wrong. A model that
+wants two things done asks twice.
+
+Programs are named, not pathed, and resolved using *your* environment — so a
+toolchain under your home directory is found, and the sandbox is granted the
+directories it actually lives in. `go vet` needs `go/pkg/tool`, not just
+`go/bin`, so the toolchain root comes along.
+
+Commands get a private scratch directory as their `HOME` and `TMPDIR`, under the
+state directory rather than in your project. A build leaves no litter in the
+repository it was asked to check, and cannot read your caches or credentials
+through `$HOME`.
+
+### What the sandbox still guarantees, and what it does not
+
+Even with exec fully allowed, a command can write to exactly two places: the
+workspace and that scratch directory. Reading the system and running programs is
+permitted; changing anything else is not — verified by a test that watches the
+kernel refuse it.
+
+The workspace is writable and **not** executable. An agent can write to the
+project it was asked to work on and cannot then run what it wrote, so the
+repository never becomes a launcher. Project scripts still run through an
+allowed interpreter: `--allow-exec bash`, then `bash ./scripts/check.sh`.
+
+Be clear about what the allowlist is, though. Allowing `bash`, or `go`, or any
+compiler grants arbitrary execution by construction — `bash -c` is a program
+that runs programs. The allowlist limits what the model can casually reach for.
+What bounds the damage is the sandbox, and that is the part worth trusting.
+
 Whichever applied is written into the turn's `turn.start` event, so a recording
 says whether its tools were confined:
 
@@ -614,16 +655,13 @@ cannot be rebuilt from it.
 - [ ] Consolidating overlapping skills, which needs a model
 - [ ] seccomp filters and network capabilities
 - [ ] Sandbox backends for macOS and Windows
-- [ ] An exec tool. The capability model has an `Exec` field and the sandbox can
-      enforce it, but no built-in tool uses either — so an agent can read and
-      write, and cannot run anything. A skill the agent wrote for itself said
-      "run make lint, make test, make bench", and it could not.
 - [ ] Channels: Telegram, Slack, Discord, WhatsApp
 - [x] OpenAI-compatible HTTP API, with replayable completion ids
 - [x] Agent Client Protocol v1, for Zed and other editors
 - [x] A Prometheus endpoint, and multi-platform releases with checksums and an SBOM
 - [ ] OpenTelemetry traces — deferred: the SDK would cost more than the whole binary
 - [x] Full-text search over every turn, and usage accounting
+- [x] An exec tool, confined so a command can write only to the workspace
 
 ## Changelog
 

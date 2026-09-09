@@ -7,6 +7,15 @@
 /plugin-go
 /seed
 
+# Litter from running commands with HOME pointed at the workspace. The exec
+# tool now uses a scratch directory outside the project, but a mistake here
+# costs a repository full of build cache, so it stays ignored.
+/.cache/
+/.config/
+/go/
+/.npm/
+/.local/
+
 # Test artefacts
 *.test
 coverage.out

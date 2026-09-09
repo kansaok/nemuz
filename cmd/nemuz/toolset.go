@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+
+	"github.com/kansaok/nemuz/internal/config"
 
 	"github.com/kansaok/nemuz/internal/plugin"
 	"github.com/kansaok/nemuz/internal/sandbox"
@@ -32,8 +35,33 @@ type toolset struct {
 	Sandbox string
 	// Workspace is the resolved directory the tools operate on.
 	Workspace string
+	// Scratch is the private directory commands may write to, when exec is
+	// allowed.
+	Scratch string
+	// MissingPrograms are approved programs that are not installed. Reported
+	// at startup rather than discovered when the model reaches for one.
+	MissingPrograms []string
 
 	closers []func()
+}
+
+// makeScratch creates the private directory commands write their temporary
+// files into.
+//
+// It lives under the state directory rather than in the project, so a build
+// leaves no litter in the repository it was asked to check, and rather than
+// /tmp, which is shared with every other process on the machine.
+func (ts *toolset) makeScratch() (string, error) {
+	paths, err := config.Resolve()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(paths.Root, "scratch")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create the command scratch directory: %w", err)
+	}
+	ts.Scratch = dir
+	return dir, nil
 }
 
 // Close shuts down every process the toolset started.
@@ -67,7 +95,7 @@ func buildToolset(ctx context.Context, opts toolsetOptions) (*toolset, error) {
 	}
 	ts := &toolset{Registry: tool.NewRegistry(), Workspace: root}
 
-	if err := ts.addBuiltins(ctx, root, opts.Sandbox); err != nil {
+	if err := ts.addBuiltins(ctx, root, opts.Sandbox, opts.AllowExec); err != nil {
 		ts.Close()
 		return nil, err
 	}
@@ -95,7 +123,7 @@ func buildToolset(ctx context.Context, opts toolsetOptions) (*toolset, error) {
 }
 
 // addBuiltins registers read_file, write_file and list_dir, confined if it can be.
-func (ts *toolset) addBuiltins(ctx context.Context, root string, mode SandboxMode) error {
+func (ts *toolset) addBuiltins(ctx context.Context, root string, mode SandboxMode, allowExec []string) error {
 	if mode == "" {
 		mode = SandboxAuto
 	}
@@ -103,7 +131,7 @@ func (ts *toolset) addBuiltins(ctx context.Context, root string, mode SandboxMod
 	switch mode {
 	case SandboxOff:
 		ts.Sandbox = "off"
-		return ts.addBuiltinsInProcess(root)
+		return ts.addBuiltinsInProcess(root, allowExec)
 
 	case SandboxOn, SandboxAuto:
 		abi, err := sandbox.LandlockABI()
@@ -114,16 +142,21 @@ func (ts *toolset) addBuiltins(ctx context.Context, root string, mode SandboxMod
 			// Saying so is the point. A sandbox that silently is not there is
 			// worse than one that is openly absent.
 			ts.Sandbox = "unavailable"
-			return ts.addBuiltinsInProcess(root)
+			return ts.addBuiltinsInProcess(root, allowExec)
 		}
-		if err := ts.addBuiltinsConfined(ctx, root); err != nil {
+		if err := ts.addBuiltinsConfined(ctx, root, allowExec); err != nil {
 			if mode == SandboxOn {
 				return err
 			}
 			ts.Sandbox = "unavailable"
-			return ts.addBuiltinsInProcess(root)
+			return ts.addBuiltinsInProcess(root, allowExec)
 		}
 		ts.Sandbox = fmt.Sprintf("landlock-v%d", abi)
+		if len(allowExec) > 0 {
+			// Recorded in the journal, so a turn keeps evidence of how wide
+			// its confinement actually was.
+			ts.Sandbox += "+exec"
+		}
 		return nil
 
 	default:
@@ -136,12 +169,27 @@ func (ts *toolset) addBuiltins(ctx context.Context, root string, mode SandboxMod
 // The workspace guard in internal/tool still applies, so paths outside the
 // workspace are refused — but by Go, not by the kernel, and a bug in that check
 // is the whole blast radius.
-func (ts *toolset) addBuiltinsInProcess(root string) error {
+func (ts *toolset) addBuiltinsInProcess(root string, allowExec []string) error {
 	ws, err := tool.NewWorkspace(root)
 	if err != nil {
 		return err
 	}
-	return ts.Registry.Register(tool.NewReadFile(ws), tool.NewWriteFile(ws), tool.NewListDir(ws))
+	if err := ts.Registry.Register(tool.NewReadFile(ws), tool.NewWriteFile(ws), tool.NewListDir(ws)); err != nil {
+		return err
+	}
+	if len(allowExec) == 0 {
+		return nil
+	}
+	programs, missing := tool.Resolve(allowExec)
+	ts.MissingPrograms = missing
+	if len(programs) == 0 {
+		return nil
+	}
+	runner := tool.NewRunCommand(ws, programs)
+	if scratch, err := ts.makeScratch(); err == nil {
+		runner.SetScratch(scratch)
+	}
+	return ts.Registry.Register(runner)
 }
 
 // executablePath resolves the nemuz binary to re-execute as a tool worker.
@@ -151,14 +199,28 @@ func (ts *toolset) addBuiltinsInProcess(root string) error {
 var executablePath = os.Executable
 
 // addBuiltinsConfined spawns nemuz as its own sandboxed tool worker.
-func (ts *toolset) addBuiltinsConfined(ctx context.Context, root string) error {
+func (ts *toolset) addBuiltinsConfined(ctx context.Context, root string, allowExec []string) error {
 	self, err := executablePath()
 	if err != nil {
 		return fmt.Errorf("locate nemuz to spawn the tool worker: %w", err)
 	}
 
+	command := []string{self, "tool-worker", "--workspace", root}
+	programs, missing := tool.Resolve(allowExec)
+	ts.MissingPrograms = missing
+	for name, path := range programs {
+		command = append(command, "--allow-exec", name+"="+path)
+	}
+	if len(programs) > 0 {
+		scratch, err := ts.makeScratch()
+		if err != nil {
+			return err
+		}
+		command = append(command, "--scratch", scratch)
+	}
+
 	client, err := plugin.Start(ctx, plugin.Options{
-		Command:     []string{self, "tool-worker", "--workspace", root},
+		Command:     command,
 		Workspace:   root,
 		HostVersion: Version,
 	})
@@ -167,9 +229,13 @@ func (ts *toolset) addBuiltinsConfined(ctx context.Context, root string) error {
 	}
 	ts.closers = append(ts.closers, func() { client.Close() })
 
+	// The policy must carry the same exec grants the operator approved, or the
+	// worker's own run_command is refused by the host that just launched it
+	// with those very programs.
+	policy := plugin.WorkspacePolicy{Workspace: root, AllowExec: allowExec}
 	// An empty namespace keeps the canonical names: these are the built-in
 	// tools, and renaming them would change every prompt and every recording.
-	tools, err := client.ToolsAs(plugin.WorkspacePolicy{Workspace: root}, "")
+	tools, err := client.ToolsAs(policy, "")
 	if err != nil {
 		return err
 	}

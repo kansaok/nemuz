@@ -13,6 +13,62 @@ listed under **Changed** with what to do about them.
 
 Nothing yet.
 
+## [0.11.0] — 2026-09-09
+
+The agent can run commands, and the sandbox still holds.
+
+### Added
+
+- **`run_command`**, offered only when `--allow-exec` names programs. Without it
+  the agent can read, write and list, and cannot run anything — which is where
+  0.10.1 left it, and why a skill the agent wrote for itself ("run make lint,
+  make test, make bench") could not be carried out.
+
+  **There is no shell.** Arguments go to the operating system directly: no
+  pipes, no globs, no `&&`, no quoting to get wrong, and no way for an argument
+  to become a second command.
+
+  Programs are named rather than pathed and resolved with the operator's
+  environment, so a toolchain under a home directory is found. Commands get a
+  private scratch directory as `HOME` and `TMPDIR`, under the state directory
+  rather than in the project.
+
+### What the sandbox guarantees now
+
+Even with exec fully allowed, a command may write to exactly two places: the
+workspace and that scratch directory. The workspace is writable and **not**
+executable, so an agent cannot write a script into the project and then run it.
+Project scripts still work through an allowed interpreter.
+
+Be clear about the allowlist, though: allowing `bash` or any compiler grants
+arbitrary execution by construction. The allowlist limits what the model
+casually reaches for; the sandbox bounds the damage. Only the second is worth
+trusting, and the README now says so.
+
+### Five things real use taught, none of which a test would have
+
+Every one of these was found by pointing the agent at this repository and asking
+it to check the project's health.
+
+- **Granting execute on a binary is not enough to run it.** `/usr/bin/ls` is
+  started by its ELF interpreter, and the kernel needs execute on the
+  interpreter too — read is not enough. Since interpreters live under the
+  library directories, allowing exec at all means allowing execute across the
+  system tree. Granting `/usr/bin/ls` exactly fails; granting `/usr` works.
+- **Landlock rejects directory rights on a file.** A rule for `/dev/null`
+  carrying `MAKE_DIR` and `READ_DIR` fails with `EINVAL` — and fails the whole
+  ruleset, not the one rule. Access is now masked to what a file can have.
+- **`exec.Command` resolves programs with the parent's `PATH`, not `cmd.Env`.**
+  The worker runs with an empty environment on purpose, so lookup found nothing
+  at all. The host resolves names now and passes absolute paths.
+- **A toolchain is not one file.** `go vet` runs `go/pkg/tool/.../vet`, so
+  granting `go/bin` finds the entry point and fails on the first thing it calls.
+  The parent of a `bin` directory comes along.
+- **`/etc/resolv.conf` is often a symlink out of `/etc`** — to `/mnt/wsl` here,
+  to `/run` under systemd-resolved. Landlock follows it to the real inode, finds
+  it ungranted, and the resolver falls back to localhost. It surfaces as a DNS
+  error that has nothing to do with DNS.
+
 ## [0.10.1] — 2026-09-08
 
 ### Fixed
@@ -493,7 +549,8 @@ them.
 - No HTTP API, no ACP, no seccomp, no CI.
 - Linux only. Landlock has no equivalent on macOS or Windows yet.
 
-[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/kansaok/nemuz/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/kansaok/nemuz/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/kansaok/nemuz/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/kansaok/nemuz/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/kansaok/nemuz/compare/v0.9.1...v0.9.2
