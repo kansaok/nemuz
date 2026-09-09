@@ -126,6 +126,19 @@ nemuz run "what is in this workspace?" --workspace .
 nemuz replay <turn-id> --workspace .
 ```
 
+For a back-and-forth conversation instead of one command per message, use
+`nemuz chat`. It opens the model and the toolset once, then reads a line at a
+time:
+
+```bash
+nemuz chat --workspace .
+```
+
+Each line you type is still its own recorded turn — replayable, indexed,
+reviewed — `chat` just keeps the connection open instead of making you type
+`nemuz run "..."` for every message. Type `/exit` or `/quit`, or press
+Ctrl+D, to leave.
+
 Replay needs no provider at all — the model can be unreachable, the key revoked,
 the vendor gone. Or record a turn with no API key at all, using a scripted model
 over real tools:

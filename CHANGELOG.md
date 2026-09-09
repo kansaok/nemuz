@@ -11,9 +11,19 @@ listed under **Changed** with what to do about them.
 
 ## [Unreleased]
 
-One-line install, and defaults you don't have to keep retyping.
+One-line install, defaults you don't have to keep retyping, and a real
+back-and-forth chat.
 
 ### Added
+
+- **`nemuz chat`.** Opens the model and the toolset once, then reads one line
+  at a time and answers it, instead of requiring a fresh `nemuz run "..."`
+  for every message. Each line is still its own recorded, replayable,
+  reviewed turn — `chat` shares the exact same per-turn path `run` uses (now
+  factored into `turnSession.runTurn` so the two cannot drift into answering
+  the same prompt differently), it just keeps the process warm across turns.
+  Continuity between lines comes from recall, the same way it already did
+  between two separate `nemuz run` calls. `/exit`, `/quit`, or Ctrl+D leaves.
 
 - **`install.sh` / `install.ps1`.** One-line install matching what every
   competing agent tool already offers, without the tradeoff most of them make:

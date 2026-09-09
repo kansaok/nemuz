@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
-	"text/tabwriter"
+	"io"
+	"strings"
 
 	"github.com/kansaok/nemuz/internal/agent"
 	"github.com/kansaok/nemuz/internal/blob"
@@ -11,12 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// defaultSystemPrompt is the base a turn starts from. Learned skills are
-// appended to it, so a skill adds to the agent's instructions rather than
-// replacing them.
-const defaultSystemPrompt = "You are a careful assistant. Use the tools to answer from the workspace."
-
-func runCmd() *cobra.Command {
+func chatCmd() *cobra.Command {
 	var (
 		providerName string
 		model        string
@@ -36,14 +34,16 @@ func runCmd() *cobra.Command {
 	)
 
 	c := &cobra.Command{
-		Use:   "run <prompt>",
-		Short: "Run one turn against a live model",
-		Long: "Runs a single turn and records it. The turn id it prints can be fed\n" +
-			"straight to `nemuz replay` to reproduce the run without spending\n" +
-			"another model call.\n\n" +
-			"API keys come from the environment; see `nemuz providers`.",
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, cmdArgs []string) error {
+		Use:   "chat",
+		Short: "Talk to the agent as a back-and-forth conversation",
+		Long: "Opens the model and the toolset once, then reads one line at a time\n" +
+			"and answers it — no need to re-run `nemuz run` for every message.\n\n" +
+			"Each line is still its own recorded turn, replayable with `nemuz\n" +
+			"replay` like any other; continuity between them comes from recall,\n" +
+			"the same way it does for two separate `nemuz run` calls.\n\n" +
+			"Type /exit or /quit to leave, or press Ctrl+D.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			paths, err := config.Resolve()
 			if err != nil {
 				return err
@@ -69,6 +69,11 @@ func runCmd() *cobra.Command {
 			})
 			if err != nil {
 				return err
+			}
+			if model == "" {
+				if preset, ok := provider.Lookup(providerName); ok {
+					model = preset.DefaultModel
+				}
 			}
 			bs, err := blob.Open(paths.Blobs)
 			if err != nil {
@@ -103,19 +108,11 @@ func runCmd() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			outcome, turnID, runErr := sess.runTurn(cmd, out, cmdArgs[0], true)
-			if runErr != nil {
-				return runErr
-			}
+			fmt.Fprintf(out, "nemuz %s · %s · %s · sandbox %s\n", model, p.Name(), ts.Workspace, ts.Sandbox)
+			fmt.Fprintln(out, "Type /exit to leave.")
+			fmt.Fprintln(out)
 
-			fmt.Fprintf(out, "%s\n\n", outcome.Text)
-			fmt.Fprintf(out, "%d steps · %d tool calls · %d in / %d out tokens",
-				outcome.Steps, outcome.ToolCalls, outcome.Usage.InputTokens, outcome.Usage.OutputTokens)
-			if outcome.Usage.CachedTokens > 0 {
-				fmt.Fprintf(out, " · %d cached", outcome.Usage.CachedTokens)
-			}
-			fmt.Fprintf(out, "\nreplay with: nemuz replay %s --workspace %s\n", turnID, workspace)
-			return nil
+			return runChatLoop(cmd, cmd.InOrStdin(), out, sess)
 		},
 	}
 
@@ -131,31 +128,42 @@ func runCmd() *cobra.Command {
 	c.Flags().BoolVar(&useSkills, "skills", true, "include active learned skills in the system prompt")
 	c.Flags().StringVar(&sandboxMode, "sandbox", string(SandboxAuto), "confine the built-in tools: on, auto, or off")
 	c.Flags().BoolVar(&useMemories, "memories", true, "recall relevant memories into the system prompt")
-	c.Flags().BoolVar(&doReview, "review", true, "after the turn, decide what was worth remembering")
+	c.Flags().BoolVar(&doReview, "review", true, "after each turn, decide what was worth remembering")
 	c.Flags().StringVar(&reviewModel, "review-model", "", "cheaper model for the review (defaults to --model)")
 	c.Flags().BoolVar(&doCurate, "curate", true, "once a day, re-verify and tidy the agent's own skills")
 	return c
 }
 
-func providersCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "providers",
-		Short: "List the providers nemuz can talk to",
-		Long: "Three wire formats cover this whole list. Anything speaking the\n" +
-			"OpenAI shape needs no adapter of its own — point --base-url at it.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "PROVIDER\tDEFAULT MODEL\tFORMAT · KEY · NOTES")
-			for _, name := range provider.Names() {
-				p, _ := provider.Lookup(name)
-				model := p.DefaultModel
-				if model == "" {
-					model = "(pass --model)"
-				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\n", name, model, p.Describe())
+// runChatLoop reads one line at a time and answers each as its own turn,
+// until the input closes or the user asks to leave.
+func runChatLoop(cmd *cobra.Command, in io.Reader, out io.Writer, sess *turnSession) error {
+	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	for {
+		fmt.Fprint(out, "you> ")
+		if !scanner.Scan() {
+			fmt.Fprintln(out)
+			return scanner.Err()
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		switch line {
+		case "/exit", "/quit":
+			return nil
+		}
+
+		outcome, turnID, err := sess.runTurn(cmd, out, line, false)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
 			}
-			return tw.Flush()
-		},
+			fmt.Fprintf(out, "nemuz> (error) %v\n\n", err)
+			continue
+		}
+		fmt.Fprintf(out, "nemuz> %s\n", outcome.Text)
+		fmt.Fprintf(out, "       %d steps · %d tool calls · turn %s\n\n", outcome.Steps, outcome.ToolCalls, turnID)
 	}
 }
