@@ -262,6 +262,62 @@ and `nemuz config` never prints what it expands. Migrating holds: an old flat
 `~/.nemuz/config.yaml` is read once and copied as `config.yaml.bak` the first
 time the new file is needed; the CLI's flat keys stay valid for day-to-day tweaks.
 
+### The interactive wizard
+
+Run `nemuz config` with no arguments on a terminal and it asks instead of just
+printing — nothing to remember:
+
+```text
+$ nemuz config
+  What do you want to set up?
+    1. model
+    2. channel (telegram)
+    3. done, load the new settings
+```
+
+Picking `model` lists every built-in preset plus "custom provider". Choose one
+and type the API key: the line is read without echoing, then validated live by
+asking the provider for its model list — a bad key gets a clear "rejected, try
+again" instead of a later, confusing failure. Custom providers ask for the base
+URL (any OpenAI-compatible endpoint, e.g. `https://ai.corpo.internal/v1`), and
+whatever provider was chosen finishes by letting you pick the exact model from
+the list the endpoint really returned, or type one. Picking `channel` walks the
+same way through the Telegram bot token (`nemuz channel telegram` will then
+start with the settings already saved). `done` prints what was saved and how to
+reload it — settings are reread on every command, so only a long-running
+process like `nemuz channel telegram` needs a restart.
+
+When stdin is not a terminal (a pipe, a Docker exec), `nemuz config` prints
+the plain settings table instead, with a pointer to `nemuz config --wizard` —
+that flag forces the interactive setup anywhere, so a scripted shell can hand
+the answers over as a here-string. `nemuz config list` shows the table on
+demand.
+
+### Pairing a new Telegram user
+
+A fresh channel is closed by default: only the ids in
+`channels.telegram.allowUsers` may talk, everyone else is ignored. Instead of
+collecting ids by hand, start the channel in pairing mode:
+
+```bash
+nemuz channel telegram --pair
+```
+
+The first time an unknown user messages the bot it answers with one command to
+run on the machine the agent runs on:
+
+```text
+Pair this chat with the agent's machine:
+
+  nemuz pairing-code POD8F4
+```
+
+Running it adds that user to the allowlist (and to `commands.ownerAllowFrom`,
+which is how `!` commands are gated) and eats the code, which lives in
+`telegram-pair.json` — created `0600`, one code per sender, valid only until
+used. Afterwards, restart `nemuz channel telegram` without `--pair` and the
+new user is simply allowed.
+
 ## Delegating to a sub-agent
 
 The agent always has a `delegate` tool: it hands a self-contained sub-task to

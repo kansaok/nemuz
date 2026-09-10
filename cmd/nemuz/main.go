@@ -30,7 +30,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(versionCmd(), doctorCmd(), journalCmd(), replayCmd(), runCmd(), chatCmd(), providersCmd(), pluginCmd(), skillCmd(), memoryCmd(), serveCmd(), acpCmd(), searchCmd(), usageCmd(), indexCmd(), toolWorkerCmd(), configCmd(), channelCmd())
+	root.AddCommand(versionCmd(), doctorCmd(), journalCmd(), replayCmd(), runCmd(), chatCmd(), providersCmd(), pluginCmd(), skillCmd(), memoryCmd(), serveCmd(), acpCmd(), searchCmd(), usageCmd(), indexCmd(), toolWorkerCmd(), configCmd(), channelCmd(), pairingCodeCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "nemuz:", err)

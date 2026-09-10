@@ -12,10 +12,12 @@ listed under **Changed** with what to do about them.
 ## [Unreleased]
 
 One-line install, defaults you don't have to keep retyping — now saved in an
-OpenClaw-shaped `~/.nemuz/config.json` with secrets in `.env` — a real
-back-and-forth chat, talking to the agent from Telegram, one API key
-variable that works no matter which preset was picked to reach a custom
-endpoint, and an agent that can delegate.
+OpenClaw-shaped `~/.nemuz/config.json` with secrets in `.env` — a guided
+`nemuz config` wizard that also sets up the provider and the Telegram channel,
+a real back-and-forth chat, talking to the agent from Telegram (with a
+pairing handshake to open the allowlist), one API key variable that works no
+matter which preset was picked to reach a custom endpoint, and an agent that
+can delegate.
 
 ### Added
 
@@ -124,6 +126,24 @@ endpoint, and an agent that can delegate.
   room, `channels.telegram.groups.*.requireMention: true` keeps the bot mum
   unless addressed by `@name`, so two bots in the same group don't argue over
   every message.
+- **`nemuz config` on a terminal is now a guided wizard.** With no arguments
+  and an attached TTY it walks through the setup — pick a provider (a preset
+  or a custom OpenAI-compatible endpoint), type the API key without echoing,
+  have it validated live against the model list endpoint, then pick the exact
+  model from what the endpoint really offers (or type one freely). A second
+  menu sets up the Telegram channel the same way. Whatever the wizard saves is
+  written into `config.json` and `.env` exactly as the flat `set`/`env`
+  commands would; piping anything into it instead falls back to the plain
+  settings table (which also prints how to break out: `nemuz config --wizard`
+  forces the wizard on a pipe, and a machine already half-configured gets the
+  same menu — setup is never "you're done", a channel can be added later).
+- **`nemuz channel telegram --pair`, a pairing handshake for the allowlist.**
+  An unknown user is not silently ignored under `--pair`: the bot answers them
+  with one command — `nemuz pairing-code XXXXXX` — to be run on the machine
+  the agent runs on. The code is single-use (kept in `telegram-pair.json`,
+  created `0600`), maps to that one sender, and running it adds the user to
+  `channels.telegram.allowUsers` and `commands.ownerAllowFrom`, so pairing in
+  Telegram is a property of the machine, not shared chips or lookup tables.
 
 ## [0.13.0] — 2026-09-09
 

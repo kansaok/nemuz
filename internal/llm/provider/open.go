@@ -189,6 +189,43 @@ func Lookup(name string) (Preset, bool) {
 	return p, ok
 }
 
+// PresetNames lists the built-in provider names, sorted, excluding config-defined
+// ones. `nemuz config` offers these plus a "custom provider" option.
+func PresetNames() []string {
+	out := make([]string, 0, len(presets))
+	for name := range presets {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Wire names the wire format a preset speaks, in the same spelling
+// models.providers.api accepts ("openai-completions", "anthropic", "google-ai").
+func (p Preset) Wire() string {
+	switch p.Kind {
+	case kindAnthropic:
+		return "anthropic"
+	case kindGemini:
+		return "google-ai"
+	default:
+		return "openai-completions"
+	}
+}
+
+// Wire is the OpenClaw api spelling for a config-defined provider: it is what
+// gets written back under models.providers.<name>.api.
+func (c Custom) Wire() (string, error) {
+	switch strings.ToLower(strings.TrimSpace(c.API)) {
+	case "google-ai", "gemini-native", "google-vertex":
+		return "google-ai", nil
+	case "anthropic":
+		return "anthropic", nil
+	default:
+		return "openai-completions", nil
+	}
+}
+
 // Spec selects and configures a provider.
 type Spec struct {
 	// Provider is a name from Names().

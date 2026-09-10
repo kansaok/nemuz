@@ -56,6 +56,7 @@ func telegramCmd() *cobra.Command {
 		token         string
 		allowUsers    []int64
 		pollTimeout   int
+		pair          bool
 	)
 
 	c := &cobra.Command{
@@ -125,7 +126,7 @@ func telegramCmd() *cobra.Command {
 			if token == "" {
 				return fmt.Errorf("channel telegram: no bot token; set %s (or the .env next to config.json) or pass --token", telegramTokenEnv)
 			}
-			if len(allowUsers) == 0 {
+			if len(allowUsers) == 0 && !pair {
 				return fmt.Errorf("channel telegram: nobody may talk to this bot — pass --allow-user, or set channels.telegram.allowUsers / commands.ownerAllowFrom in config")
 			}
 
@@ -183,6 +184,9 @@ func telegramCmd() *cobra.Command {
 			fmt.Fprintf(out, "nemuz %s · telegram @%s · %s via %s · %s · sandbox %s\n",
 				Version, me.Username, model, p.Name(), ts.Workspace, ts.Sandbox)
 			fmt.Fprintf(out, "allowed users: %v\n\n", allowUsers)
+			if pair {
+				fmt.Fprintf(out, "pairing mode: new users get a code for `nemuz pairing-code`\n\n")
+			}
 			if requireMention {
 				fmt.Fprintf(out, "groups: replies only when mentioned (@%s)\n\n", me.Username)
 			}
@@ -199,6 +203,8 @@ func telegramCmd() *cobra.Command {
 				offsetPath:     offsetPath,
 				botUsername:    me.Username,
 				requireMention: requireMention,
+				pairMode:       pair,
+				pairPath:       filepath.Join(paths.Root, pairFileName),
 			}
 			return bot.run(cmd.Context())
 		},
@@ -224,6 +230,7 @@ func telegramCmd() *cobra.Command {
 	c.Flags().StringVar(&token, "token", "", "bot token from @BotFather (defaults to "+telegramTokenEnv+")")
 	c.Flags().Int64SliceVar(&allowUsers, "allow-user", nil, "Telegram user id allowed to talk to this bot; repeatable, required")
 	c.Flags().IntVar(&pollTimeout, "poll-timeout", 30, "seconds Telegram may hold a getUpdates call open waiting for a message")
+	c.Flags().BoolVar(&pair, "pair", false, "pairing mode: answer new users with a code to run `nemuz pairing-code`")
 	return c
 }
 
@@ -240,6 +247,8 @@ type telegramBot struct {
 	offsetPath     string
 	botUsername    string // for groups that require a mention before replying
 	requireMention bool   // channels.telegram.groups.*.requireMention
+	pairMode       bool   // answer unknown users with a pairing code
+	pairPath       string // where in-flight pairing codes live
 }
 
 func (b *telegramBot) run(ctx context.Context) error {
@@ -282,6 +291,19 @@ func (b *telegramBot) handle(ctx context.Context, u telegram.Update) {
 		return
 	}
 	if msg.From == nil || !allowedUser(b.allowUsers, msg.From.ID) {
+		if b.pairMode && msg.From != nil {
+			code, err := issuePairCode(b.pairPath, msg.From.ID)
+			if err != nil {
+				fmt.Fprintf(b.out, "channel telegram: pairing code: %v\n", err)
+				return
+			}
+			err = b.client.SendMessage(ctx, msg.Chat.ID,
+				fmt.Sprintf("Pair this chat with the agent's machine:\n\n  nemuz pairing-code %s\n\nRun that where the agent runs, then message me again.", code))
+			if err != nil {
+				fmt.Fprintf(b.out, "channel telegram: pairing reply to chat %d failed: %v\n", msg.Chat.ID, err)
+			}
+			return
+		}
 		who := "unknown"
 		if msg.From != nil {
 			who = fmt.Sprintf("%d (@%s)", msg.From.ID, msg.From.Username)

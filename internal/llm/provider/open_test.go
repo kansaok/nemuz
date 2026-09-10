@@ -139,6 +139,56 @@ func TestOverridesWin(t *testing.T) {
 	}
 }
 
+func TestPresetWireAndNames(t *testing.T) {
+	if got := LookupMust("openai").Wire(); got != "openai-completions" {
+		t.Errorf("openai wire = %q", got)
+	}
+	if got := LookupMust("anthropic").Wire(); got != "anthropic" {
+		t.Errorf("anthropic wire = %q", got)
+	}
+	if got := LookupMust("gemini").Wire(); got != "google-ai" {
+		t.Errorf("gemini wire = %q", got)
+	}
+	names := PresetNames()
+	if len(names) == 0 {
+		t.Fatal("no presets reported")
+	}
+	if !contains(names, "openai") {
+		t.Error("PresetNames misses openai")
+	}
+}
+
+func TestCustomWire(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                   "openai-completions",
+		"openai-completions": "openai-completions",
+		"openai-responses":   "openai-completions",
+		"anthropic":          "anthropic",
+		"google-ai":          "google-ai",
+		"gemini-native":      "google-ai",
+		"GOOGLE-VERTEX":      "google-ai",
+		"ollama":             "openai-completions",
+		"llamacpp":           "openai-completions",
+		"some-nonsense-name": "openai-completions",
+	} {
+		got, err := (Custom{API: in}).Wire()
+		if err != nil {
+			t.Fatalf("Wire(%q): %v", in, err)
+		}
+		if got != want {
+			t.Errorf("Wire(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func LookupMust(name string) Preset {
+	p, ok := Lookup(name)
+	if !ok {
+		panic("preset " + name + " missing")
+	}
+	return p
+}
+
 func TestRegisterCustomAndOpen(t *testing.T) {
 	t.Cleanup(func() { custom = map[string]Custom{} })
 	t.Setenv(GenericKeyEnv, "")

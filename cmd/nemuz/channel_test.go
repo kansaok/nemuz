@@ -68,6 +68,58 @@ func fakeTelegramSendMessage(t *testing.T) (*httptest.Server, *[]map[string]any)
 	return srv, &calls
 }
 
+func TestTelegramBotPairingRepliesAnUnknownUserWithACode(t *testing.T) {
+	sess := newTestSession(t, nil) // a pairing reply must never reach the model
+	srv, calls := fakeTelegramSendMessage(t)
+	pairPath := filepath.Join(t.TempDir(), pairFileName)
+
+	bot := &telegramBot{
+		client:      &telegram.Client{Token: "t", BaseURL: srv.URL},
+		session:     sess,
+		cmd:         &cobra.Command{},
+		out:         io.Discard,
+		allowUsers:  []int64{1},
+		pollTimeout: 0,
+		pairMode:    true,
+		pairPath:    pairPath,
+	}
+	bot.handle(context.Background(), telegram.Update{
+		UpdateID: 1,
+		Message: &telegram.Message{
+			Chat: telegram.Chat{ID: 55},
+			Text: "halo",
+			From: &telegram.User{ID: 999, Username: "orang-asing"},
+		},
+	})
+
+	if len(*calls) != 1 {
+		t.Fatalf("got %d replies, want 1 pairing reply", len(*calls))
+	}
+	text, _ := (*calls)[0]["text"].(string)
+	if !strings.Contains(text, "nemuz pairing-code ") {
+		t.Errorf("reply should carry a pairing command, got: %v", (*calls)[0]["text"])
+	}
+	if sess.provider.(*llm.Static).Calls() != 0 {
+		t.Error("a pairing request reached the model")
+	}
+
+	m, err := loadPairCodes(pairPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m) != 1 {
+		t.Fatalf("pairing file holds %d codes, want 1", len(m))
+	}
+	for code, userID := range m {
+		if userID != 999 {
+			t.Errorf("code %q is for user %d, want 999", code, userID)
+		}
+		if !strings.Contains((*calls)[0]["text"].(string), code) {
+			t.Errorf("reply does not contain the stored code %q", code)
+		}
+	}
+}
+
 func TestTelegramBotIgnoresAnUnauthorizedUser(t *testing.T) {
 	sess := newTestSession(t, nil) // no scripted responses: a call here would fail the test
 	srv, calls := fakeTelegramSendMessage(t)

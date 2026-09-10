@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/kansaok/nemuz/internal/cli"
 	"github.com/kansaok/nemuz/internal/config"
 	"github.com/kansaok/nemuz/internal/llm/provider"
 	"github.com/spf13/cobra"
@@ -129,9 +130,10 @@ func providersFromConfig(m config.Models) map[string]provider.Custom {
 }
 
 func configCmd() *cobra.Command {
+	var wizardOnly bool
 	c := &cobra.Command{
 		Use:   "config",
-		Short: "List the saved defaults for provider, model, sandbox, and more",
+		Short: "Set up the agent: provider and model, then a channel to talk to it",
 		Long: "Saved defaults live in one JSON file, " + config.ConfigFileName + ",\n" +
 			"shaped after OpenClaw's openclaw.json — agents.defaults, then\n" +
 			"models.providers, channels, gateway, plugins. Every command that\n" +
@@ -139,12 +141,19 @@ func configCmd() *cobra.Command {
 			"from here first, and a flag passed on the command line always\n" +
 			"overrides it. Nothing here is required — nemuz runs fine with no\n" +
 			"config file at all.\n\n" +
-			"These flat commands set the agents.defaults.* slots. The nested\n" +
-			"sections (providers, channels, gateway) are edited in the file\n" +
-			"itself; secrets live in a .env next to it, named with ${NAME} in the\n" +
-			"config, and are set from the command line — never opened by hand and\n" +
-			"never printed back:\n\n" +
+			"With no arguments and an attached terminal, config runs an\n" +
+			"interactive setup: which provider (including a custom gateway), the\n" +
+			"API key — checked by asking the provider for its model list — and\n" +
+			"which model to use; then a channel and who may talk to it. Secrets\n" +
+			"are read with echo off and written to the .env next to config.json,\n" +
+			"never the file itself. When stdin is not a terminal (a pipe, a\n" +
+			"script) config prints the settings table instead; --wizard forces\n" +
+			"the interactive setup anywhere.\n\n" +
+			"The flat commands below set agents.defaults.* slots directly, and\n" +
+			"list prints what is saved:\n\n" +
+			"  nemuz config --wizard\n" +
 			"  nemuz config env CORPO_API_KEY=sk-...\n" +
+			"  nemuz config list\n" +
 			"  nemuz config get model\n" +
 			"  nemuz config set model custom-ai-foo.com/agent-v1\n" +
 			"  nemuz config unset model",
@@ -154,36 +163,65 @@ func configCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			settings, err := config.LoadSettings(paths.Config)
+			io := cli.Terminal()
+			if wizardOnly || io.Interactive() {
+				settings, err := config.LoadSettings(paths.Config)
+				if err != nil {
+					return err
+				}
+				return configWizard(&io, &paths, settings)
+			}
+			return configList(cmd, paths)
+		},
+	}
+	c.Flags().BoolVarP(&wizardOnly, "wizard", "w", false, "run the interactive setup even when stdin is not a terminal")
+	c.AddCommand(configGetCmd(), configSetCmd(), configUnsetCmd(), configEnvCmd(), configListCmd())
+	return c
+}
+
+func configListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "Print the saved defaults (provider, model, sandbox, ...)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			paths, err := config.Resolve()
 			if err != nil {
 				return err
 			}
-
-			out := cmd.OutOrStdout()
-			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "KEY\tVALUE")
-			keys := append([]string(nil), config.Keys...)
-			sort.Strings(keys)
-			any := false
-			for _, k := range keys {
-				v, _ := settings.Get(k)
-				if v == "" {
-					continue
-				}
-				any = true
-				fmt.Fprintf(tw, "%s\t%s\n", k, v)
-			}
-			if err := tw.Flush(); err != nil {
-				return err
-			}
-			if !any {
-				fmt.Fprintf(out, "nothing saved yet — %s\n", paths.Config)
-			}
-			return nil
+			return configList(cmd, paths)
 		},
 	}
-	c.AddCommand(configGetCmd(), configSetCmd(), configUnsetCmd(), configEnvCmd())
-	return c
+}
+
+func configList(cmd *cobra.Command, paths config.Paths) error {
+	settings, err := config.LoadSettings(paths.Config)
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "KEY\tVALUE")
+	keys := append([]string(nil), config.Keys...)
+	sort.Strings(keys)
+	any := false
+	for _, k := range keys {
+		v, _ := settings.Get(k)
+		if v == "" {
+			continue
+		}
+		any = true
+		fmt.Fprintf(tw, "%s\t%s\n", k, v)
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if !any {
+		fmt.Fprintf(out, "nothing saved yet — %s\n", paths.Config)
+	}
+	fmt.Fprintf(out, "\npiped here, so this is the table. To step through setup instead:\n  nemuz config --wizard\n")
+	return nil
 }
 
 func configGetCmd() *cobra.Command {

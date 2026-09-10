@@ -1,12 +1,66 @@
 package main
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/kansaok/nemuz/internal/config"
 	"github.com/kansaok/nemuz/internal/llm/provider"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
+
+func TestConfigCmdHasAWizardFlag(t *testing.T) {
+	cmd := configCmd()
+	f := cmd.Flags().Lookup("wizard")
+	if f == nil {
+		t.Fatal("config has no --wizard flag")
+	}
+	if f.Shorthand != "w" {
+		t.Errorf("--wizard shorthand = %q, want w", f.Shorthand)
+	}
+}
+
+func TestConfigListPointsToTheWizard(t *testing.T) {
+	paths := config.At(t.TempDir())
+	cmd := &cobra.Command{}
+	cmd.Flags().AddFlagSet(&pflag.FlagSet{})
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetArgs(nil)
+
+	if err := configList(cmd, paths); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "--wizard") {
+		t.Errorf("the table should point at the interactive setup, got:\n%s", out.String())
+	}
+}
+
+func TestConfigListShowsSavedDefaults(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.At(dir)
+	s := &config.Config{}
+	s.Set("provider", "anthropic")
+	s.Set("model", "claude-opus-5")
+	if err := config.Save(cfg.Config, s); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := &cobra.Command{}
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	if err := configList(cmd, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, want := range []string{"provider", "anthropic", "model", "claude-opus-5"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("table missing %q:\n%s", want, got)
+		}
+	}
+}
 
 func TestApplyProviderModelDefaultsSplitsOpenClawPrimary(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "k")
