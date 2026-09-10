@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/kansaok/nemuz/internal/agent"
@@ -54,16 +55,19 @@ func runCmd() *cobra.Command {
 				return err
 			}
 			settings := config.LoadSettingsQuiet(paths.Config)
-			applyStringDefault(cmd, "provider", &providerName, "provider", settings)
-			applyStringDefault(cmd, "model", &model, "model", settings)
+			applyProviderModelDefaults(cmd, settings, &providerName, &model)
 			applyStringDefault(cmd, "base-url", &baseURL, "base-url", settings)
 			applyStringDefault(cmd, "sandbox", &sandboxMode, "sandbox", settings)
+			applyStringDefault(cmd, "workspace", &workspace, "workspace", settings)
 			applyStringDefault(cmd, "review-model", &reviewModel, "review-model", settings)
 			applyListDefault(cmd, "allow-exec", &allowExec, "allow-exec", settings)
 			applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
 			applyBoolDefault(cmd, "skills", &useSkills, "skills", settings)
 			applyBoolDefault(cmd, "memories", &useMemories, "memories", settings)
+			applyBoolDefault(cmd, "review", &doReview, "review", settings)
+			applyBoolDefault(cmd, "curate", &doCurate, "curate", settings)
 			applyIntDefault(cmd, "delegate-depth", &delegateDepth, "delegate-depth", settings)
+			applyPluginDefault(cmd, &pluginCmds, settings)
 
 			p, err := provider.Open(provider.Spec{
 				Provider: providerName,
@@ -133,7 +137,7 @@ func runCmd() *cobra.Command {
 	c.Flags().StringVarP(&workspace, "workspace", "w", ".", "workspace the tools operate on")
 	c.Flags().StringVar(&system, "system", defaultSystemPrompt, "system prompt")
 	c.Flags().IntVar(&maxSteps, "max-steps", agent.DefaultMaxSteps, "maximum tool rounds before giving up")
-	c.Flags().StringArrayVar(&pluginCmds, "plugin", nil, "plugin command to load; repeatable")
+	c.Flags().StringArrayVar(&pluginCmds, "plugin", nil, "plugin command to load; repeatable (default: plugins.entries in config)")
 	c.Flags().StringArrayVar(&allowNet, "allow-net", nil, "network destination a plugin may reach; repeatable")
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program a plugin may run; repeatable")
 	c.Flags().BoolVar(&useSkills, "skills", true, "include active learned skills in the system prompt")
@@ -158,12 +162,21 @@ func providersCmd() *cobra.Command {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "PROVIDER\tDEFAULT MODEL\tFORMAT · KEY · NOTES")
 			for _, name := range provider.Names() {
-				p, _ := provider.Lookup(name)
-				model := p.DefaultModel
-				if model == "" {
-					model = "(pass --model)"
+				if preset, ok := provider.Lookup(name); ok {
+					model := preset.DefaultModel
+					if model == "" {
+						model = "(pass --model)"
+					}
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", name, model, preset.Describe())
+					continue
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\n", name, model, p.Describe())
+				if cp, ok := provider.LookupCustom(name); ok {
+					model := cp.DefaultModel
+					if model == "" {
+						model = "(pass --model)"
+					}
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", name, model, strings.TrimSpace(cp.API+" · config-defined"))
+				}
 			}
 			return tw.Flush()
 		},

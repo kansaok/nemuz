@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -73,14 +74,113 @@ var presets = map[string]Preset{
 // name was picked to reach it.
 const GenericKeyEnv = "NEMUZ_API_KEY"
 
-// Names returns the known provider names, sorted.
+// Custom is a provider defined in config (models.providers) rather than in
+// the built-in catalogue. It needs the same three things a preset spells out
+// in code — which wire format, which endpoint, where the key comes from —
+// plus a default model if the config listed any.
+type Custom struct {
+	// BaseURL is the API root the provider speaks at.
+	BaseURL string
+	// API is the wire format: openai-completions, anthropic, or google-ai
+	// (gemini-native and the other OpenAI-shaped spellings are accepted too).
+	API string
+	// APIKey is the key, already resolved from its ${NAME} reference. Empty
+	// lets the generic NEMUZ_API_KEY fallback be used instead.
+	APIKey string
+	// DefaultModel is the first model id in models.providers.<name>.models.
+	DefaultModel string
+}
+
+// custom holds providers registered from config. package-private because
+// registration is a startup step, not something a turn may race.
+var custom = map[string]Custom{}
+
+// RegisterCustom adds models.providers entries from config to the catalogue. A
+// name that collides with a built-in preset is refused — config must not
+// silently replace what code ships — and so is an API name nemuz cannot speak.
+// Everything else is registered, and all the rejections come back as one
+// error so a caller can show them all at once.
+func RegisterCustom(in map[string]Custom) error {
+	var errs []string
+	next := make(map[string]Custom, len(in))
+	for name, c := range in {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		if _, ok := presets[name]; ok {
+			errs = append(errs, fmt.Sprintf("provider: %s is a built-in provider; pick a different key under models.providers", name))
+			continue
+		}
+		if _, err := customKind(c.API); err != nil {
+			errs = append(errs, fmt.Sprintf("provider: %s: %v", name, err))
+			continue
+		}
+		next[name] = c
+	}
+	custom = next
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "\n"))
+	}
+	return nil
+}
+
+// CustomNames reports the config-defined provider names, sorted, for display.
+func CustomNames() []string {
+	out := make([]string, 0, len(custom))
+	for name := range custom {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// LookupCustom returns a registered config provider.
+func LookupCustom(name string) (Custom, bool) {
+	c, ok := custom[strings.ToLower(strings.TrimSpace(name))]
+	return c, ok
+}
+
+// customKind maps an OpenClaw api spelling onto nemuz's three wire formats.
+func customKind(api string) (kind, error) {
+	switch strings.ToLower(strings.TrimSpace(api)) {
+	case "", "openai-completions", "openai-responses", "ollama", "llamacpp", "vllm", "mistral":
+		return kindOpenAI, nil
+	case "anthropic":
+		return kindAnthropic, nil
+	case "google-ai", "gemini-native", "google-vertex":
+		return kindGemini, nil
+	default:
+		return 0, fmt.Errorf("unsupported api %q; use openai-completions, anthropic, or google-ai", api)
+	}
+}
+
+// Names returns the known provider names, sorted. Config-defined providers are
+// included once registered, so `nemuz providers` and error messages agree on
+// what is available.
 func Names() []string {
 	out := make([]string, 0, len(presets))
 	for name := range presets {
 		out = append(out, name)
 	}
+	for name := range custom {
+		if _, ok := presets[name]; !ok {
+			out = append(out, name)
+		}
+	}
 	sort.Strings(out)
 	return out
+}
+
+// Known reports whether name is a usable provider: built-in or registered from
+// config. Used to split an OpenClaw-style "provider/model" primary.
+func Known(name string) bool {
+	if _, ok := Lookup(name); ok {
+		return true
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	_, ok := custom[name]
+	return ok
 }
 
 // Lookup returns the preset for name.
@@ -110,6 +210,9 @@ func Open(spec Spec) (llm.Provider, error) {
 	}
 	preset, ok := Lookup(name)
 	if !ok {
+		if c, in := LookupCustom(name); in {
+			return openCustom(spec, name, c)
+		}
 		return nil, fmt.Errorf("provider: unknown provider %q; known providers are %s", name, strings.Join(Names(), ", "))
 	}
 
@@ -139,6 +242,50 @@ func Open(spec Spec) (llm.Provider, error) {
 	cfg := Config{BaseURL: baseURL, APIKey: key, Model: model}
 
 	switch preset.Kind {
+	case kindAnthropic:
+		return NewAnthropic(cfg), nil
+	case kindGemini:
+		return NewGemini(cfg), nil
+	default:
+		return NewOpenAI(name, cfg), nil
+	}
+}
+
+// openCustom builds a provider from a config-defined entry. Its behaviour
+// matches a preset's: an explicit Spec field wins over the config value, and
+// the key comes from the spec, then the config, then the generic fallback.
+func openCustom(spec Spec, name string, c Custom) (llm.Provider, error) {
+	k, err := customKind(c.API)
+	if err != nil {
+		return nil, fmt.Errorf("provider: %s: %w", name, err)
+	}
+
+	key := spec.APIKey
+	if key == "" {
+		key = c.APIKey
+	}
+	if key == "" {
+		key = os.Getenv(GenericKeyEnv)
+	}
+
+	model := spec.Model
+	if model == "" {
+		model = c.DefaultModel
+	}
+	if model == "" {
+		return nil, fmt.Errorf("provider: %s has no default model; pass --model or list one under models.providers", name)
+	}
+
+	baseURL := spec.BaseURL
+	if baseURL == "" {
+		baseURL = c.BaseURL
+	}
+	if baseURL == "" {
+		return nil, fmt.Errorf("provider: %s has no baseUrl; set one under models.providers", name)
+	}
+
+	cfg := Config{BaseURL: baseURL, APIKey: key, Model: model}
+	switch k {
 	case kindAnthropic:
 		return NewAnthropic(cfg), nil
 	case kindGemini:

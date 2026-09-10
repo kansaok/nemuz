@@ -11,7 +11,8 @@ listed under **Changed** with what to do about them.
 
 ## [Unreleased]
 
-One-line install, defaults you don't have to keep retyping, a real
+One-line install, defaults you don't have to keep retyping — now saved in an
+OpenClaw-shaped `~/.nemuz/config.json` with secrets in `.env` — a real
 back-and-forth chat, talking to the agent from Telegram, one API key
 variable that works no matter which preset was picked to reach a custom
 endpoint, and an agent that can delegate.
@@ -62,15 +63,48 @@ endpoint, and an agent that can delegate.
   (`~/.local/bin`, or `%LOCALAPPDATA%\nemuz\bin` on Windows) that gets added
   to `PATH`. `install.sh --system` uses `/usr/local/bin` instead.
 - **`nemuz config`.** Saves defaults — provider, model, review-model,
-  base-url, sandbox, allow-exec, allow-net, skills, memories — to
-  `~/.nemuz/config.yaml`, so they don't need to be passed as flags on every
-  invocation. `run`, `serve`, `acp`, `replay`, `consolidate`, `skill
-  eval`/`certify`, and `skill curate` all read from it. A flag passed
-  explicitly on the command line always overrides a saved default — the file
-  only fills in what wasn't said this time — and a missing or corrupt config
-  file never blocks a command; it just falls back to nemuz's built-in
-  defaults, the same way a missing journal directory means no turns have run
-  yet rather than an error.
+  base-url, sandbox, allow-exec, allow-net, skills, memories, review,
+  curate, delegate-depth — to `~/.nemuz/config.json`, so they don't need to
+  be passed as flags on every invocation. `run`, `serve`, `acp`, `replay`,
+  `consolidate`, `skill eval`/`certify`, and `skill curate` all read from
+  it. A flag passed explicitly on the command line always overrides a saved
+  default — the file only fills in what wasn't said this time — and a
+  missing or corrupt config file never blocks a command; it just falls back
+  to nemuz's built-in defaults, the same way a missing journal directory
+  means no turns have run yet rather than an error.
+
+  The file is not a bag of flags anymore: it uses the same nested layout
+  OpenClaw does (`agents.defaults`, `models.providers`, `gateway.auth`,
+  `channels.telegram`, `commands.ownerAllowFrom`, `plugins.entries`), so the
+  same machine can be administered by the same tooling. The flat `key value`
+  CLI above is kept as a convenience projection onto `agents.defaults`, and a
+  legacy `~/.nemuz/config.yaml` is migrated automatically on first use
+  (renamed to `config.yaml.bak`, never deleted).
+
+  The nested structure also carries what the flat CLI cannot, all read where
+  they matter:
+  - **Secrets live in `~/.nemuz/.env`, not the config file.** A value like
+    `"${CORPO_API_KEY}"` is expanded at load from `.env`/the environment. The
+    file stays shareable, and `nemuz config` only ever shows the reference,
+    never the expanded secret. The `.env` is written from the command line
+    (`nemuz config env CORPO_API_KEY=sk-...` to save or replace, `--unset` to
+    forget, bare to list which names are set), never printed back, `0600` on
+    disk — the file needs no human ever opening it.
+  - **Custom providers for `models.mode: merge`.** An entry under
+    `models.providers` with `baseUrl`, an `api` (`openai-completions`,
+    `anthropic`, `google-ai`, …), and a default model is registered at
+    startup, so `model.primary` can name `"custom-ai-corpo/engine-v1"`; the
+    provider shows up in `nemuz providers` tagged config-defined. A name that
+    collides with a preset, or an `api` that maps to nothing, is rejected
+    without touching the built-ins.
+  - **`gateway.auth.token` feeds `nemuz serve`, `channels.telegram.*` feeds
+    `nemuz channel telegram`** — bot token (flagged by `--token`/the
+    `TELEGRAM_BOT_TOKEN` env when present), the allowlist (falling back to
+    `commands.ownerAllowFrom`, the OpenClaw owner list), an `enabled: false`
+    kill switch, and a per‑group `requireMention` so the bot stays silent in a
+    shared room unless addressed by name.
+  - **`plugins.entries` are the default `--plugin` list**, loaded in sorted
+    order, enabled unless flagged `enabled: false`.
 - **`nemuz channel telegram`, so the agent can be talked to from a chat
   platform.** It long-polls the Bot API, which needs no public URL or TLS
   certificate of its own — the bot dials out to Telegram rather than the
@@ -80,11 +114,16 @@ endpoint, and an agent that can delegate.
 
   It deliberately errs on refusing: the bot token alone never opens the agent
   to anyone who finds it. `--allow-user` names the Telegram user ids allowed
-  to talk, and every other sender is ignored. A single workspace is shared
-  across all of them — this is a single-tenant channel, not yet a per-user
-  sandbox. Restarting is safe without a dedup table because the next update
-  offset is persisted to disk; an empty answer is sent as "(no output)" rather
-  than silently vanishing, since Telegram refuses an empty message outright.
+  to talk, and every other sender is ignored (the same list can come from
+  `channels.telegram.allowUsers` in config, or from the OpenClaw owner list
+  `commands.ownerAllowFrom`). A single workspace is shared across all of them
+  — this is a single-tenant channel, not yet a per-user sandbox. Restarting
+  is safe without a dedup table because the next update offset is persisted
+  to disk; an empty answer is sent as "(no output)" rather than silently
+  vanishing, since Telegram refuses an empty message outright. In a shared
+  room, `channels.telegram.groups.*.requireMention: true` keeps the bot mum
+  unless addressed by `@name`, so two bots in the same group don't argue over
+  every message.
 
 ## [0.13.0] — 2026-09-09
 
@@ -367,6 +406,11 @@ stated rather than engineered around.
   `modernc.org/sqlite` does. This should have been stated in 0.9.0 and was not:
   it happened silently when the dependency was added, which is precisely the
   failure the guard above now prevents.
+- **Config lives in `~/.nemuz/config.json`, not `config.yaml`.** The layout
+  became the nested OpenClaw shape described under Added, and an existing flat
+  `config.yaml` is migrated automatically on first use — see the `nemuz
+  config` entry. Manual edits to a `config.yaml` that hasn't been migrated yet
+  will be picked up once, then the file is moved to `config.yaml.bak`.
 
 ## [0.9.0] — 2026-09-08
 

@@ -65,11 +65,13 @@ func telegramCmd() *cobra.Command {
 			"needed, since the bot reaches out to Telegram rather than the other\n" +
 			"way around. Each incoming message becomes its own recorded turn,\n" +
 			"exactly like `nemuz run` or `nemuz chat`, replayable the same way.\n\n" +
-			"Get a token from @BotFather, then either export " + telegramTokenEnv + "\n" +
-			"or pass --token. --allow-user is required: without an explicit\n" +
-			"allowlist of Telegram user ids, every message would be refused\n" +
-			"rather than let a bot token alone open the agent to anyone who\n" +
-			"finds it.\n\n" +
+			"Get a token from @BotFather, then export " + telegramTokenEnv + " (or\n" +
+			"store it in the .env next to config.json) or pass --token. The bot\n" +
+			"will not talk to just anyone: the allowlist of Telegram user ids\n" +
+			"comes from --allow-user, or from channels.telegram.allowUsers /\n" +
+			"commands.ownerAllowFrom in config — without it, every message is\n" +
+			"refused rather than let a bot token alone open the agent to anyone\n" +
+			"who finds it.\n\n" +
 			"One workspace is shared across every allowed user — this is a\n" +
 			"single-tenant channel, not yet a per-user sandbox.",
 		Args: cobra.NoArgs,
@@ -82,25 +84,49 @@ func telegramCmd() *cobra.Command {
 				return err
 			}
 			settings := config.LoadSettingsQuiet(paths.Config)
-			applyStringDefault(cmd, "provider", &providerName, "provider", settings)
-			applyStringDefault(cmd, "model", &model, "model", settings)
+			expanded := settings.Expand()
+			applyProviderModelDefaults(cmd, settings, &providerName, &model)
 			applyStringDefault(cmd, "base-url", &baseURL, "base-url", settings)
 			applyStringDefault(cmd, "sandbox", &sandboxMode, "sandbox", settings)
+			applyStringDefault(cmd, "workspace", &workspace, "workspace", settings)
 			applyStringDefault(cmd, "review-model", &reviewModel, "review-model", settings)
 			applyListDefault(cmd, "allow-exec", &allowExec, "allow-exec", settings)
 			applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
 			applyBoolDefault(cmd, "skills", &useSkills, "skills", settings)
 			applyBoolDefault(cmd, "memories", &useMemories, "memories", settings)
+			applyBoolDefault(cmd, "review", &doReview, "review", settings)
+			applyBoolDefault(cmd, "curate", &doCurate, "curate", settings)
 			applyIntDefault(cmd, "delegate-depth", &delegateDepth, "delegate-depth", settings)
+			applyPluginDefault(cmd, &pluginCmds, settings)
+
+			// channels.telegram in config can supply everything --token and
+			// --allow-user would: the bot token (still referred to as ${NAME},
+			// expanded above) and the allowlist, falling back to the OpenClaw
+			// owner list commands.ownerAllowFrom. An explicit flag still wins.
+			requireMention := false
+			if tg := expanded.Channels.Telegram; tg != nil {
+				if tg.Enabled != nil && !*tg.Enabled {
+					return fmt.Errorf("channel telegram: disabled in config (channels.telegram.enabled: false)")
+				}
+				if token == "" && !cmd.Flags().Changed("token") {
+					token = os.Getenv(telegramTokenEnv)
+				}
+				if token == "" && tg.BotToken != "" {
+					token = tg.BotToken
+				}
+				if len(allowUsers) == 0 && !cmd.Flags().Changed("allow-user") {
+					allowUsers = settings.TelegramAllowUsers()
+				}
+				if grp, ok := tg.Groups["*"]; ok && grp.RequireMention != nil && *grp.RequireMention {
+					requireMention = true
+				}
+			}
 
 			if token == "" {
-				token = os.Getenv(telegramTokenEnv)
-			}
-			if token == "" {
-				return fmt.Errorf("channel telegram: no bot token; set %s or pass --token", telegramTokenEnv)
+				return fmt.Errorf("channel telegram: no bot token; set %s (or the .env next to config.json) or pass --token", telegramTokenEnv)
 			}
 			if len(allowUsers) == 0 {
-				return fmt.Errorf("channel telegram: --allow-user is required — list the Telegram user id(s) allowed to talk to this bot, or anyone who finds the token can")
+				return fmt.Errorf("channel telegram: nobody may talk to this bot — pass --allow-user, or set channels.telegram.allowUsers / commands.ownerAllowFrom in config")
 			}
 
 			p, err := provider.Open(provider.Spec{Provider: providerName, Model: model, BaseURL: baseURL})
@@ -157,17 +183,22 @@ func telegramCmd() *cobra.Command {
 			fmt.Fprintf(out, "nemuz %s · telegram @%s · %s via %s · %s · sandbox %s\n",
 				Version, me.Username, model, p.Name(), ts.Workspace, ts.Sandbox)
 			fmt.Fprintf(out, "allowed users: %v\n\n", allowUsers)
+			if requireMention {
+				fmt.Fprintf(out, "groups: replies only when mentioned (@%s)\n\n", me.Username)
+			}
 
 			offsetPath := filepath.Join(paths.Root, "telegram-offset")
 			bot := &telegramBot{
-				client:        tc,
-				session:       sess,
-				cmd:           cmd,
-				out:           out,
-				allowUsers:    allowUsers,
-				pollTimeout:   pollTimeout,
-				delegateDepth: delegateDepth,
-				offsetPath:    offsetPath,
+				client:         tc,
+				session:        sess,
+				cmd:            cmd,
+				out:            out,
+				allowUsers:     allowUsers,
+				pollTimeout:    pollTimeout,
+				delegateDepth:  delegateDepth,
+				offsetPath:     offsetPath,
+				botUsername:    me.Username,
+				requireMention: requireMention,
 			}
 			return bot.run(cmd.Context())
 		},
@@ -179,7 +210,7 @@ func telegramCmd() *cobra.Command {
 	c.Flags().StringVarP(&workspace, "workspace", "w", ".", "workspace the tools operate on")
 	c.Flags().StringVar(&system, "system", defaultSystemPrompt, "system prompt")
 	c.Flags().IntVar(&maxSteps, "max-steps", agent.DefaultMaxSteps, "maximum tool rounds before giving up")
-	c.Flags().StringArrayVar(&pluginCmds, "plugin", nil, "plugin command to load; repeatable")
+	c.Flags().StringArrayVar(&pluginCmds, "plugin", nil, "plugin command to load; repeatable (default: plugins.entries in config)")
 	c.Flags().StringArrayVar(&allowNet, "allow-net", nil, "network destination a plugin may reach; repeatable")
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program a plugin may run; repeatable")
 	c.Flags().BoolVar(&useSkills, "skills", true, "include active learned skills in the system prompt")
@@ -199,14 +230,16 @@ func telegramCmd() *cobra.Command {
 // telegramBot is the long-poll loop, separated from telegramCmd's flag
 // parsing so it can be driven directly from a test with a fake client.
 type telegramBot struct {
-	client        *telegram.Client
-	session       *turnSession
-	cmd           *cobra.Command
-	out           interface{ Write([]byte) (int, error) }
-	allowUsers    []int64
-	pollTimeout   int
-	delegateDepth int
-	offsetPath    string
+	client         *telegram.Client
+	session        *turnSession
+	cmd            *cobra.Command
+	out            interface{ Write([]byte) (int, error) }
+	allowUsers     []int64
+	pollTimeout    int
+	delegateDepth  int
+	offsetPath     string
+	botUsername    string // for groups that require a mention before replying
+	requireMention bool   // channels.telegram.groups.*.requireMention
 }
 
 func (b *telegramBot) run(ctx context.Context) error {
@@ -244,6 +277,10 @@ func (b *telegramBot) handle(ctx context.Context, u telegram.Update) {
 		return
 	}
 	msg := u.Message
+	if b.requireMention && (msg.Chat.Type == "group" || msg.Chat.Type == "supergroup") &&
+		!strings.Contains(msg.Text, "@"+b.botUsername) {
+		return
+	}
 	if msg.From == nil || !allowedUser(b.allowUsers, msg.From.ID) {
 		who := "unknown"
 		if msg.From != nil {

@@ -23,7 +23,8 @@ type Paths struct {
 	Memories string // facts kept from past turns
 	Plugins  string // installed plugins
 	DB       string // state.db
-	Config   string // saved defaults: provider, model, sandbox, exec allowlist
+	Config   string // config.json: saved defaults, shaped after OpenClaw
+	Env      string // .env: the secrets config.json refers to with ${NAME}
 }
 
 // Resolve returns the paths for this machine, honouring NEMUZ_HOME.
@@ -49,7 +50,8 @@ func At(dir string) Paths {
 		Memories: filepath.Join(dir, "memories"),
 		Plugins:  filepath.Join(dir, "plugins"),
 		DB:       filepath.Join(dir, "state.db"),
-		Config:   filepath.Join(dir, "config.yaml"),
+		Config:   filepath.Join(dir, ConfigFileName),
+		Env:      filepath.Join(dir, EnvFileName),
 	}
 }
 

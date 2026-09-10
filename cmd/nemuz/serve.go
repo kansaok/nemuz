@@ -59,14 +59,23 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			settings := config.LoadSettingsQuiet(paths.Config)
-			applyStringDefault(cmd, "provider", &providerName, "provider", settings)
-			applyStringDefault(cmd, "model", &model, "model", settings)
+			applyProviderModelDefaults(cmd, settings, &providerName, &model)
 			applyStringDefault(cmd, "base-url", &baseURL, "base-url", settings)
 			applyStringDefault(cmd, "sandbox", &sandboxMode, "sandbox", settings)
+			applyStringDefault(cmd, "workspace", &workspace, "workspace", settings)
 			applyListDefault(cmd, "allow-exec", &allowExec, "allow-exec", settings)
 			applyListDefault(cmd, "allow-net", &allowNet, "allow-net", settings)
 			applyBoolDefault(cmd, "skills", &useSkills, "skills", settings)
 			applyBoolDefault(cmd, "memories", &useMemories, "memories", settings)
+			applyPluginDefault(cmd, &pluginCmds, settings)
+
+			// The gateway token may come from config's gateway.auth.token, in
+			// the same slot OpenClaw stores it. An env var always wins.
+			apiKey := os.Getenv(apiKeyEnv)
+			if apiKey == "" {
+				co := settings.Expand()
+				apiKey = co.Gateway.Auth.Token
+			}
 
 			p, err := provider.Open(provider.Spec{Provider: providerName, Model: model, BaseURL: baseURL})
 			if err != nil {
@@ -114,7 +123,7 @@ func serveCmd() *cobra.Command {
 			server, err := httpapi.NewServer(httpapi.Options{
 				Runner:  agent,
 				Model:   model,
-				APIKey:  os.Getenv(apiKeyEnv),
+				APIKey:  apiKey,
 				Addr:    addr,
 				Metrics: recorder,
 			})
@@ -130,10 +139,10 @@ func serveCmd() *cobra.Command {
 			if withMetrics {
 				fmt.Fprintf(out, "  metrics   http://%s/metrics\n", addr)
 			}
-			if os.Getenv(apiKeyEnv) == "" {
-				fmt.Fprintf(out, "  auth      none — loopback only. Set %s to require a key.\n", apiKeyEnv)
+			if apiKey == "" {
+				fmt.Fprintf(out, "  auth      none — loopback only. Set %s or gateway.auth.token in config to require a key.\n", apiKeyEnv)
 			} else {
-				fmt.Fprintf(out, "  auth      %s\n", apiKeyEnv)
+				fmt.Fprintf(out, "  auth      key required (%s or gateway.auth.token)\n", apiKeyEnv)
 			}
 			fmt.Fprintf(out, "\nTry it:\n  curl -s http://%s/v1/chat/completions \\\n"+
 				"    -H 'Content-Type: application/json' \\\n"+
@@ -150,7 +159,7 @@ func serveCmd() *cobra.Command {
 	c.Flags().StringVarP(&workspace, "workspace", "w", ".", "workspace the tools operate on")
 	c.Flags().StringVar(&system, "system", defaultSystemPrompt, "system prompt")
 	c.Flags().StringVar(&sandboxMode, "sandbox", string(SandboxAuto), "confine the built-in tools: on, auto, or off")
-	c.Flags().StringArrayVar(&pluginCmds, "plugin", nil, "plugin command to load; repeatable")
+	c.Flags().StringArrayVar(&pluginCmds, "plugin", nil, "plugin command to load; repeatable (default: plugins.entries in config)")
 	c.Flags().StringArrayVar(&allowNet, "allow-net", nil, "network destination a plugin may reach; repeatable")
 	c.Flags().StringArrayVar(&allowExec, "allow-exec", nil, "program a plugin may run; repeatable")
 	c.Flags().BoolVar(&useSkills, "skills", true, "include active learned skills in the system prompt")

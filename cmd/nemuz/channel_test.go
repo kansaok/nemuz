@@ -179,3 +179,54 @@ func TestTelegramBotReportsAFailedTurnBackToTheChat(t *testing.T) {
 		t.Errorf("reply should say the turn failed, got: %v", (*calls)[0]["text"])
 	}
 }
+
+// TestTelegramBotRequiresMentionInGroups covers channels.telegram.groups.*.
+// requireMention: in a group the bot stays silent unless addressed by name, so
+// two bots in the same room do not argue about every message.
+func TestTelegramBotRequiresMentionInGroups(t *testing.T) {
+	sess := newTestSession(t, []llm.Response{{Text: "empat", StopReason: llm.StopEnd}})
+	srv, calls := fakeTelegramSendMessage(t)
+
+	bot := &telegramBot{
+		client:         &telegram.Client{Token: "t", BaseURL: srv.URL},
+		session:        sess,
+		cmd:            &cobra.Command{},
+		out:            io.Discard,
+		allowUsers:     []int64{7},
+		pollTimeout:    0,
+		botUsername:    "nemuz_bot",
+		requireMention: true,
+	}
+
+	// Allowed user, group chat, no mention: ignored.
+	bot.handle(context.Background(), telegram.Update{
+		UpdateID: 1,
+		Message: &telegram.Message{
+			Chat: telegram.Chat{ID: 55, Type: "supergroup"},
+			Text: "sip",
+			From: &telegram.User{ID: 7},
+		},
+	})
+	// Mentioned: answered.
+	bot.handle(context.Background(), telegram.Update{
+		UpdateID: 2,
+		Message: &telegram.Message{
+			Chat: telegram.Chat{ID: 55, Type: "supergroup"},
+			Text: "hey @nemuz_bot berapa 2+2?",
+			From: &telegram.User{ID: 7},
+		},
+	})
+	// A DM needs no mention even when requireMention is set.
+	bot.handle(context.Background(), telegram.Update{
+		UpdateID: 3,
+		Message: &telegram.Message{
+			Chat: telegram.Chat{ID: 99, Type: "private"},
+			Text: "berapa 2+2?",
+			From: &telegram.User{ID: 7},
+		},
+	})
+
+	if len(*calls) != 2 {
+		t.Errorf("got %d replies, want only the mentioned/private ones", len(*calls))
+	}
+}

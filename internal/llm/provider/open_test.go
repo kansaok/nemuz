@@ -138,3 +138,107 @@ func TestOverridesWin(t *testing.T) {
 		t.Errorf("inline key was not used")
 	}
 }
+
+func TestRegisterCustomAndOpen(t *testing.T) {
+	t.Cleanup(func() { custom = map[string]Custom{} })
+	t.Setenv(GenericKeyEnv, "")
+
+	if err := RegisterCustom(map[string]Custom{
+		"custom-ai-foo-com": {
+			BaseURL:      "https://ai.foo.com/v1",
+			API:          "openai-completions",
+			APIKey:       "config-key",
+			DefaultModel: "model-v1",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !Known("custom-ai-foo-com") {
+		t.Fatal("a registered custom provider is not known")
+	}
+	if !contains(Names(), "custom-ai-foo-com") {
+		t.Fatal("a registered custom provider is missing from Names()")
+	}
+
+	p, err := Open(Spec{Provider: "custom-ai-foo-com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oa, ok := p.(*OpenAI)
+	if !ok {
+		t.Fatalf("got %T, want *OpenAI", p)
+	}
+	if oa.model != "model-v1" {
+		t.Errorf("default model = %q", oa.model)
+	}
+	if oa.tr.cfg.BaseURL != "https://ai.foo.com/v1" {
+		t.Errorf("base URL = %q", oa.tr.cfg.BaseURL)
+	}
+	if oa.tr.cfg.Headers["Authorization"] != "Bearer config-key" {
+		t.Errorf("the config key was not used")
+	}
+}
+
+func TestRegisterCustomRejectsCollisions(t *testing.T) {
+	t.Cleanup(func() { custom = map[string]Custom{} })
+	err := RegisterCustom(map[string]Custom{
+		"anthropic": {API: "anthropic"},
+		"bad-wire":  {API: "lisp-with-parens"},
+		"ok-one":    {API: "openai-completions", BaseURL: "http://127.0.0.1:9999/v1"},
+	})
+	if err == nil {
+		t.Fatal("a config that collides with a preset should be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "anthropic") || !strings.Contains(msg, "bad-wire") {
+		t.Errorf("the error should name both rejections, got: %v", err)
+	}
+	// The valid entry still got registered.
+	if !Known("ok-one") {
+		t.Error("a valid custom provider was dropped with the bad ones")
+	}
+	// And the built-in preset is untouched.
+	if _, ok := Lookup("anthropic"); !ok {
+		t.Error("RegisterCustom replaced a built-in provider")
+	}
+}
+
+func TestCustomProviderFallsBackToGenericKeyEnv(t *testing.T) {
+	t.Cleanup(func() { custom = map[string]Custom{} })
+	t.Setenv(GenericKeyEnv, "generic-key")
+	if err := RegisterCustom(map[string]Custom{
+		"no-key-in-config": {API: "openai-completions", BaseURL: "http://127.0.0.1:9999/v1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Open(Spec{Provider: "no-key-in-config", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oa, ok := p.(*OpenAI)
+	if !ok {
+		t.Fatalf("got %T", p)
+	}
+	if oa.tr.cfg.Headers["Authorization"] != "Bearer generic-key" {
+		t.Errorf("the generic fallback was not used, header = %q", oa.tr.cfg.Headers["Authorization"])
+	}
+}
+
+func TestCustomProviderNeedsBaseURLAndModel(t *testing.T) {
+	t.Cleanup(func() { custom = map[string]Custom{} })
+	if err := RegisterCustom(map[string]Custom{"bare": {API: "openai-completions"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(Spec{Provider: "bare"}); err == nil {
+		t.Error("a custom provider with no baseUrl or model opened successfully")
+	}
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/kansaok/nemuz/internal/config"
+	"github.com/kansaok/nemuz/internal/llm/provider"
 	"github.com/spf13/cobra"
 )
 
@@ -16,6 +18,8 @@ var (
 )
 
 func main() {
+	loadStartupConfig()
+
 	root := &cobra.Command{
 		Use:   "nemuz",
 		Short: "An agent framework whose every turn can be replayed",
@@ -31,6 +35,28 @@ func main() {
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "nemuz:", err)
 		os.Exit(1)
+	}
+}
+
+// loadStartupConfig exports ~/.nemuz/.env into the environment and registers
+// models.providers from config.json as provider catalogue entries, so every
+// command sees the same configuration before it even parses its own flags.
+// This is why main runs it rather than each command: a ${NAME} in config.json
+// must already be resolvable wherever the env is checked.
+func loadStartupConfig() {
+	paths, err := config.Resolve()
+	if err != nil {
+		return
+	}
+	if err := config.LoadDotEnv(paths.Env); err != nil {
+		fmt.Fprintf(os.Stderr, "nemuz: load %s: %v\n", paths.Env, err)
+	}
+	settings := config.LoadSettingsQuiet(paths.Config)
+	if settings == nil {
+		return
+	}
+	if err := provider.RegisterCustom(providersFromConfig(settings.Expand().Models)); err != nil {
+		fmt.Fprintf(os.Stderr, "nemuz: config: %v\n", err)
 	}
 }
 

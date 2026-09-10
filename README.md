@@ -180,7 +180,7 @@ DIVERGED  llm: replay diverged before model call 2 — the request differs from 
 ## Configuring defaults
 
 Typing `--provider anthropic --model claude-opus-5` on every command gets old.
-`nemuz config` saves defaults once, in `~/.nemuz/config.yaml`:
+`nemuz config` saves defaults once, in `~/.nemuz/config.json`:
 
 ```bash
 nemuz config set provider anthropic
@@ -190,6 +190,18 @@ nemuz config set allow-exec go,make
 nemuz config get model
 nemuz config unset sandbox
 nemuz config          # list everything currently saved
+nemuz config env CORPO_API_KEY=sk-...   # a secret, straight into ~/.nemuz/.env
+nemuz config env                        # which secret names are set
+```
+
+Secrets never need to be opened by hand: `nemuz config env NAME=VALUE` writes
+them into `~/.nemuz/.env` (permission `0600`), never echoes the value back, and
+`nemuz config env --unset NAME` forgets one. The file is created next to
+`config.json` on that command, so the setup is:
+
+```bash
+nemuz config env CORPO_API_KEY=sk-...
+nemuz config set model custom-ai-corpo/engine-v1
 ```
 
 `run`, `serve`, `acp`, `replay`, `consolidate`, `skill eval`/`certify`, and
@@ -200,6 +212,55 @@ wins over a saved default; the file only fills in what you didn't say this
 time. Nothing
 here is required — nemuz runs fine with no config file, falling back to its
 built-in defaults exactly as before.
+
+The file holds the same nested layout OpenClaw uses, so a machine can be
+administered the same way (or driven by that project's migration tooling).
+Every key above survives in its familiar `key value` CLI form, and the file
+remembers a couple of extra knobs that don't belong on a per-run flag:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "workspace": "/srv/nemuz/ws",
+      "model": { "primary": "anthropic/claude-opus-5" },
+      "sandbox": "auto"
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "custom-ai-corpo": {
+        "baseUrl": "https://ai.corpo.internal/v1",
+        "api": "openai-completions",
+        "apiKey": "${CORPO_API_KEY}",
+        "models": [{ "id": "engine-v1" }]
+      }
+    }
+  },
+  "gateway": { "auth": { "mode": "token", "token": "${GATEWAY_TOKEN}" } },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "${TELEGRAM_BOT_TOKEN}",
+      "allowUsers": [7361357941],
+      "groups": { "*": { "requireMention": true } }
+    }
+  },
+  "commands": { "ownerAllowFrom": ["telegram:7361357941"] },
+  "plugins": { "entries": { "go-ls": { "enabled": true } } }
+}
+```
+
+Secrets never live in `config.json`: the value is a reference like `${NAME}`
+that is also real — secret, provider keys, bot tokens — and resolved at load
+time from `~/.nemuz/.env` (or the process environment). Nothing that names a
+secrets file needs to be opened by hand: `nemuz config env NAME=VALUE` puts a
+credential there from the command line without echoing it. This is the one
+place nemuz deliberately copies OpenClaw: the file is readable and shareable,
+and `nemuz config` never prints what it expands. Migrating holds: an old flat
+`~/.nemuz/config.yaml` is read once and copied as `config.yaml.bak` the first
+time the new file is needed; the CLI's flat keys stay valid for day-to-day tweaks.
 
 ## Delegating to a sub-agent
 
