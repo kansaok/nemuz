@@ -26,7 +26,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(versionCmd(), doctorCmd(), journalCmd(), replayCmd(), runCmd(), chatCmd(), providersCmd(), pluginCmd(), skillCmd(), memoryCmd(), serveCmd(), acpCmd(), searchCmd(), usageCmd(), indexCmd(), toolWorkerCmd(), configCmd())
+	root.AddCommand(versionCmd(), doctorCmd(), journalCmd(), replayCmd(), runCmd(), chatCmd(), providersCmd(), pluginCmd(), skillCmd(), memoryCmd(), serveCmd(), acpCmd(), searchCmd(), usageCmd(), indexCmd(), toolWorkerCmd(), configCmd(), channelCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "nemuz:", err)

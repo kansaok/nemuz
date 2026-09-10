@@ -12,8 +12,9 @@ listed under **Changed** with what to do about them.
 ## [Unreleased]
 
 One-line install, defaults you don't have to keep retyping, a real
-back-and-forth chat, one API key variable that works no matter which preset
-was picked to reach a custom endpoint, and an agent that can delegate.
+back-and-forth chat, talking to the agent from Telegram, one API key
+variable that works no matter which preset was picked to reach a custom
+endpoint, and an agent that can delegate.
 
 ### Added
 
@@ -70,6 +71,20 @@ was picked to reach a custom endpoint, and an agent that can delegate.
   file never blocks a command; it just falls back to nemuz's built-in
   defaults, the same way a missing journal directory means no turns have run
   yet rather than an error.
+- **`nemuz channel telegram`, so the agent can be talked to from a chat
+  platform.** It long-polls the Bot API, which needs no public URL or TLS
+  certificate of its own — the bot dials out to Telegram rather than the
+  other way around. Each message runs as its own recorded, replayable turn,
+  exactly like `nemuz run` or `nemuz chat`, and the reply is sent back split
+  across Telegram's message-size limit rather than truncated.
+
+  It deliberately errs on refusing: the bot token alone never opens the agent
+  to anyone who finds it. `--allow-user` names the Telegram user ids allowed
+  to talk, and every other sender is ignored. A single workspace is shared
+  across all of them — this is a single-tenant channel, not yet a per-user
+  sandbox. Restarting is safe without a dedup table because the next update
+  offset is persisted to disk; an empty answer is sent as "(no output)" rather
+  than silently vanishing, since Telegram refuses an empty message outright.
 
 ## [0.13.0] — 2026-09-09
 

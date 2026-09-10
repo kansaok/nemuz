@@ -10,8 +10,8 @@ trusted.
 
 > Status: early. The turn loop, provider adapters, tool plugins, memory,
 > background review, learned skills with an eval gate and a curator, journal,
-> replay, the Landlock sandbox, an OpenAI-compatible HTTP API and ACP all work
-> and are tested end to end. Chat channels are not built yet.
+> replay, the Landlock sandbox, an OpenAI-compatible HTTP API, ACP and a
+> Telegram channel all work and are tested end to end.
 
 ## Why
 
@@ -138,6 +138,21 @@ Each line you type is still its own recorded turn — replayable, indexed,
 reviewed — `chat` just keeps the connection open instead of making you type
 `nemuz run "..."` for every message. Type `/exit` or `/quit`, or press
 Ctrl+D, to leave.
+
+Or reach the same agent from Telegram, with `nemuz channel telegram`. It
+long-polls the Bot API, so it needs no public URL or TLS certificate of its
+own — the bot dials out to Telegram rather than the other way around:
+
+```bash
+export TELEGRAM_BOT_TOKEN=<from @BotFather>
+nemuz channel telegram --allow-user 123456789
+```
+
+Each message becomes its own recorded turn, replayable exactly like one from
+`run` or `chat`. `--allow-user` is required and names every Telegram user id
+allowed to talk to the bot; anyone else is ignored, so a leaked token alone
+never opens the agent. One workspace is shared across every allowed user —
+this is a single-tenant channel, not yet a per-user sandbox.
 
 Replay needs no provider at all — the model can be unreachable, the key revoked,
 the vendor gone. Or record a turn with no API key at all, using a scripted model
@@ -823,7 +838,8 @@ cannot be rebuilt from it.
 - [x] Consolidating overlapping skills, with a model, as its own explicit step
 - [x] A public API and CI that enforces the no-network and sandbox claims
 - [ ] Sandbox backends for macOS and Windows
-- [ ] Channels: Telegram, Slack, Discord, WhatsApp
+- [ ] Channels: Slack, Discord, WhatsApp
+- [x] Telegram channel — long-polling, no public URL needed, replayable turns
 - [x] OpenAI-compatible HTTP API, with replayable completion ids
 - [x] Agent Client Protocol v1, for Zed and other editors
 - [x] A Prometheus endpoint, and multi-platform releases with checksums and an SBOM
