@@ -38,3 +38,25 @@ func TestEnsureDirsCreatesPrivateDirectories(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureDirsRepairsExistingPermissions(t *testing.T) {
+	p := At(filepath.Join(t.TempDir(), "state"))
+	if err := os.MkdirAll(p.Journal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{p.Root, p.Journal} {
+		fi, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != 0o700 {
+			t.Errorf("%s has mode %o, want 0700", d, got)
+		}
+	}
+}

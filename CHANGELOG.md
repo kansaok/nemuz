@@ -21,6 +21,22 @@ can delegate.
 
 ### Added
 
+- **Hardening for externally reachable agents.** Built-in tools and plugins
+  now start through confined workers on Linux; plugins have filesystem access
+  only to the workspace and cannot create sockets unless network access is
+  explicitly allowed. The OpenAI-compatible server now has request-body,
+  output-token, rate, concurrency, and connection-time limits.
+
+- **Privacy controls for recordings.** `nemuz journal prune --older-than`
+  previews retention before deletion, and `--apply` removes expired turns,
+  unreferenced blobs, and the derived search index. `nemuz journal redact`
+  replaces named JSON fields with `[REDACTED]`; redacted recordings are marked
+  and replay is refused rather than presenting altered evidence as reproducible.
+
+- **Short-lived Telegram pairing codes.** Pairing codes now have ten
+  characters, expire after ten minutes, and are discarded after use. Existing
+  state directories are tightened to owner-only permissions on startup.
+
 - **A `delegate` tool, so one agent can hand a sub-task to another agent
   turn.** The sub-agent gets the exact same model, toolset, and sandbox as
   its caller, and returns only its final answer — not its whole step-by-step
@@ -127,16 +143,21 @@ can delegate.
   unless addressed by `@name`, so two bots in the same group don't argue over
   every message.
 - **`nemuz config` on a terminal is now a guided wizard.** With no arguments
-  and an attached TTY it walks through the setup — pick a provider (a preset
+  and an attached TTY it walks through the setup, one question per screen —
+  pick a provider (a preset
   or a custom OpenAI-compatible endpoint), type the API key without echoing,
-  have it validated live against the model list endpoint, then pick the exact
-  model from what the endpoint really offers (or type one freely). A second
+  have it validated live against the model list endpoint (green verdict when
+  the key works, red when the provider refuses it), then type the model id —
+  checked back against that same list, so a typo is caught in red before it
+  reaches the provider. A second
   menu sets up the Telegram channel the same way. Whatever the wizard saves is
   written into `config.json` and `.env` exactly as the flat `set`/`env`
   commands would; piping anything into it instead falls back to the plain
   settings table (which also prints how to break out: `nemuz config --wizard`
   forces the wizard on a pipe, and a machine already half-configured gets the
   same menu — setup is never "you're done", a channel can be added later).
+  The screen clears before every new question, so the wizard never piles the
+  steps up the terminal.
 - **`nemuz channel telegram --pair`, a pairing handshake for the allowlist.**
   An unknown user is not silently ignored under `--pair`: the bot answers them
   with one command — `nemuz pairing-code XXXXXX` — to be run on the machine

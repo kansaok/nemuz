@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // Ref is the lowercase hex SHA-256 of a blob's content.
@@ -156,4 +157,46 @@ func (s *Store) Get(ref Ref) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("blob: open: %w", err)
 	}
 	return f, nil
+}
+
+// Refs lists every valid blob reference in the store. It is used by retention
+// tooling to remove payloads no surviving journal can reach.
+func (s *Store) Refs() ([]Ref, error) {
+	shards, err := os.ReadDir(s.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("blob: list root: %w", err)
+	}
+	var refs []Ref
+	for _, shard := range shards {
+		if !shard.IsDir() {
+			continue
+		}
+		entries, err := os.ReadDir(filepath.Join(s.root, shard.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("blob: list shard %s: %w", shard.Name(), err)
+		}
+		for _, entry := range entries {
+			ref := Ref(entry.Name())
+			if !entry.IsDir() && ref.Valid() {
+				refs = append(refs, ref)
+			}
+		}
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i] < refs[j] })
+	return refs, nil
+}
+
+// Remove deletes one blob. Callers must first establish that no journal still
+// references it; content-addressing means a blob may belong to many turns.
+func (s *Store) Remove(ref Ref) error {
+	if !ref.Valid() {
+		return fmt.Errorf("blob: malformed ref %q", ref)
+	}
+	if err := os.Remove(s.Path(ref)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("blob: remove %s: %w", ref.Short(), err)
+	}
+	return nil
 }

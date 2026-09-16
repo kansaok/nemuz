@@ -59,6 +59,17 @@ type Turn struct {
 	Path string
 }
 
+// RedactionPath names the marker written beside a journal whose payloads were
+// deliberately sanitised. Such a record remains useful for audit chronology,
+// but it is no longer a replay cassette.
+func RedactionPath(path string) string { return path + ".redacted" }
+
+// IsRedacted reports whether a turn has been sanitised.
+func IsRedacted(t Turn) bool {
+	_, err := os.Stat(RedactionPath(t.Path))
+	return err == nil
+}
+
 // List returns the turns recorded under dir, ordered by id. Turn ids are
 // lexicographically sortable (ULID), so this is also chronological order.
 func List(dir string) ([]Turn, error) {

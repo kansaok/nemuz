@@ -17,6 +17,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kansaok/nemuz/internal/agent"
@@ -55,10 +57,29 @@ type Options struct {
 	// Metrics records turns and responses. Nil disables /metrics entirely,
 	// rather than serving an endpoint that always reads zero.
 	Metrics *metrics.Metrics
+	// MaxConcurrentTurns caps model/tool turns running at once. Zero uses a
+	// conservative default so one client cannot turn the HTTP endpoint into an
+	// unbounded queue of expensive provider calls.
+	MaxConcurrentTurns int
+	// RateLimit is the maximum completion requests one client may make during
+	// RateWindow. Zero uses DefaultRateLimit; a negative value disables it.
+	RateLimit  int
+	RateWindow time.Duration
+	// MaxRequestBytes caps one JSON request body. Zero uses the default.
+	MaxRequestBytes int64
 }
 
 // DefaultTimeout bounds a single request.
 const DefaultTimeout = 10 * time.Minute
+
+// DefaultMaxConcurrentTurns bounds the work accepted by a server process.
+const DefaultMaxConcurrentTurns = 4
+
+const (
+	DefaultRateLimit       = 60
+	DefaultRateWindow      = time.Minute
+	DefaultMaxRequestBytes = 1 << 20 // 1 MiB
+)
 
 // ErrKeyRequired means the server would have been reachable off this machine
 // without authentication.
@@ -66,7 +87,9 @@ var ErrKeyRequired = errors.New("httpapi: an API key is required when not bound 
 
 // Server answers chat-completion requests by running agent turns.
 type Server struct {
-	opts Options
+	opts  Options
+	turns chan struct{}
+	rate  *rateLimiter
 }
 
 // NewServer validates the options and returns a server.
@@ -85,7 +108,12 @@ func NewServer(opts Options) (*Server, error) {
 	if opts.APIKey == "" && !isLoopback(opts.Addr) {
 		return nil, fmt.Errorf("%w (listening on %s)", ErrKeyRequired, opts.Addr)
 	}
-	return &Server{opts: opts}, nil
+	limit := opts.MaxConcurrentTurns
+	if limit <= 0 {
+		limit = DefaultMaxConcurrentTurns
+	}
+	rate := newRateLimiter(opts.RateLimit, opts.RateWindow)
+	return &Server{opts: opts, turns: make(chan struct{}, limit), rate: rate}, nil
 }
 
 // Handler returns the routes.
@@ -95,8 +123,35 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health/detailed", s.healthDetailed)
 	mux.HandleFunc("GET /metrics", s.serveMetrics)
 	mux.Handle("GET /v1/models", s.authenticated(http.HandlerFunc(s.listModels)))
-	mux.Handle("POST /v1/chat/completions", s.authenticated(http.HandlerFunc(s.completions)))
+	mux.Handle("POST /v1/chat/completions", s.authenticated(s.ratelimited(s.limited(http.HandlerFunc(s.completions)))))
 	return s.observed(mux)
+}
+
+func (s *Server) ratelimited(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.rate == nil || s.rate.allow(clientIdentity(r)) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded", "request rate limit exceeded; retry shortly")
+	})
+}
+
+// limited refuses excess work immediately. Queuing would keep request bodies,
+// connections, and callers alive for up to ten minutes, which is exactly the
+// denial-of-service shape this bound is meant to prevent.
+func (s *Server) limited(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case s.turns <- struct{}{}:
+			defer func() { <-s.turns }()
+			next.ServeHTTP(w, r)
+		default:
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded", "server is at its concurrent turn limit; retry shortly")
+		}
+	})
 }
 
 // isLoopback reports whether addr binds only to this machine.
@@ -163,7 +218,11 @@ func (s *Server) listModels(w http.ResponseWriter, _ *http.Request) {
 // completions runs one turn for a chat-completions request.
 func (s *Server) completions(w http.ResponseWriter, r *http.Request) {
 	var req completionRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBytes)).Decode(&req); err != nil {
+	maxBytes := s.opts.MaxRequestBytes
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxRequestBytes
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request_error", "Could not read the request body: "+err.Error())
 		return
 	}
@@ -202,8 +261,58 @@ func (s *Server) completions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, buildCompletion(out, s.opts.Model))
 }
 
-// maxRequestBytes caps a request body.
-const maxRequestBytes = 8 << 20 // 8 MiB
+type rateBucket struct {
+	started time.Time
+	count   int
+}
+
+type rateLimiter struct {
+	mu     sync.Mutex
+	limit  int
+	window time.Duration
+	bucket map[[32]byte]rateBucket
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	if limit < 0 {
+		return nil
+	}
+	if limit == 0 {
+		limit = DefaultRateLimit
+	}
+	if window <= 0 {
+		window = DefaultRateWindow
+	}
+	return &rateLimiter{limit: limit, window: window, bucket: map[[32]byte]rateBucket{}}
+}
+
+func (l *rateLimiter) allow(id [32]byte) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	b := l.bucket[id]
+	if b.started.IsZero() || now.Sub(b.started) >= l.window {
+		l.bucket[id] = rateBucket{started: now, count: 1}
+		return true
+	}
+	if b.count >= l.limit {
+		return false
+	}
+	b.count++
+	l.bucket[id] = b
+	return true
+}
+
+// clientIdentity hashes the IP and bearer token so rate limiter state never
+// retains credentials. Forwarded headers are intentionally ignored: without a
+// trusted proxy setting they are controlled by the caller.
+func clientIdentity(r *http.Request) [32]byte {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return sha256.Sum256([]byte(host + "\x00" + r.Header.Get("Authorization")))
+}
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")

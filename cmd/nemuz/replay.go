@@ -89,6 +89,9 @@ func runReplay(cmd *cobra.Command, turnRef string, opts replayOptions) error {
 	if err != nil {
 		return err
 	}
+	if journal.IsRedacted(turn) {
+		return fmt.Errorf("turn %s was redacted and cannot be replayed", turn.ID)
+	}
 	recorded, err := journal.Read(turn.Path)
 	if err != nil {
 		return err

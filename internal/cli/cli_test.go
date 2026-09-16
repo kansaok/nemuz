@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -87,6 +88,23 @@ func TestReadSecretOnAPipeIsAPlainRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != "sk-secret" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestColorIsIdentityWithoutATerminal(t *testing.T) {
+	io := script("")
+	for _, code := range []int{31, 32, 1} {
+		if got := io.Color(code, "valid"); got != "valid" {
+			t.Errorf("code %d wrapped text off a terminal: %q", code, got)
+		}
+	}
+}
+
+func TestColorUsesTheTerminalWrapper(t *testing.T) {
+	io := &IO{In: strings.NewReader(""), Out: &bytes.Buffer{}}
+	io.color = func(code int, s string) string { return fmt.Sprintf("<%d>%s", code, s) }
+	if got := io.Color(32, "ok"); got != "<32>ok" {
 		t.Errorf("got %q", got)
 	}
 }

@@ -26,19 +26,23 @@ const apiKeyEnv = "NEMUZ_API_KEY"
 
 func serveCmd() *cobra.Command {
 	var (
-		addr         string
-		providerName string
-		model        string
-		baseURL      string
-		workspace    string
-		system       string
-		sandboxMode  string
-		pluginCmds   []string
-		allowNet     []string
-		allowExec    []string
-		useSkills    bool
-		useMemories  bool
-		withMetrics  bool
+		addr            string
+		providerName    string
+		model           string
+		baseURL         string
+		workspace       string
+		system          string
+		sandboxMode     string
+		pluginCmds      []string
+		allowNet        []string
+		allowExec       []string
+		useSkills       bool
+		useMemories     bool
+		withMetrics     bool
+		rateLimit       int
+		rateWindow      time.Duration
+		maxRequestBytes int64
+		maxTokens       int
 	)
 
 	c := &cobra.Command{
@@ -110,6 +114,7 @@ func serveCmd() *cobra.Command {
 				WithoutBuiltins: true,
 				WithoutSkills:   !useSkills,
 				WithoutMemories: !useMemories,
+				MaxTokens:       maxTokens,
 			})
 			if err != nil {
 				return err
@@ -121,11 +126,14 @@ func serveCmd() *cobra.Command {
 				recorder = metrics.New()
 			}
 			server, err := httpapi.NewServer(httpapi.Options{
-				Runner:  agent,
-				Model:   model,
-				APIKey:  apiKey,
-				Addr:    addr,
-				Metrics: recorder,
+				Runner:          agent,
+				Model:           model,
+				APIKey:          apiKey,
+				Addr:            addr,
+				Metrics:         recorder,
+				RateLimit:       rateLimit,
+				RateWindow:      rateWindow,
+				MaxRequestBytes: maxRequestBytes,
 			})
 			if err != nil {
 				return err
@@ -165,6 +173,10 @@ func serveCmd() *cobra.Command {
 	c.Flags().BoolVar(&useSkills, "skills", true, "include active learned skills in the system prompt")
 	c.Flags().BoolVar(&useMemories, "memories", true, "recall relevant memories into the system prompt")
 	c.Flags().BoolVar(&withMetrics, "metrics", true, "serve Prometheus metrics at /metrics")
+	c.Flags().IntVar(&rateLimit, "rate-limit", httpapi.DefaultRateLimit, "completion requests per client in --rate-window; use -1 to disable")
+	c.Flags().DurationVar(&rateWindow, "rate-window", httpapi.DefaultRateWindow, "fixed window for --rate-limit")
+	c.Flags().Int64Var(&maxRequestBytes, "max-request-bytes", httpapi.DefaultMaxRequestBytes, "maximum JSON request body size in bytes")
+	c.Flags().IntVar(&maxTokens, "max-tokens", 0, "maximum output tokens per model call (0 uses provider default)")
 	return c
 }
 
@@ -177,6 +189,9 @@ func listen(ctx context.Context, out interface{ Write([]byte) (int, error) }, ad
 		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      11 * time.Minute,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

@@ -28,7 +28,7 @@ func loadWizardConfig(t *testing.T, dir string) *config.Config {
 
 func TestWizardSetsUpALocalPresetWithoutAKey(t *testing.T) {
 	dir := t.TempDir()
-	io, buf := wizardTestIO("1\n8\n1\nllama3.2\n3\n")
+	io, buf := wizardTestIO("1\n8\nllama3.2\n3\n")
 	if err := configWizard(io, p(dir), &config.Config{}); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestWizardSetsUpACustomProviderWithALiveModelList(t *testing.T) {
 	}
 	defer func() { wizardFetchModels = old }()
 
-	io, buf := wizardTestIO("1\n14\nhttps://ai.corpo.internal/v1\nsk-x\n2\n3\n")
+	io, buf := wizardTestIO("1\n14\nhttps://ai.corpo.internal/v1\nsk-x\nengine-v1\n3\n")
 	if err := configWizard(io, p(dir), &config.Config{}); err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +88,27 @@ func TestWizardSetsUpACustomProviderWithALiveModelList(t *testing.T) {
 	}
 }
 
+func TestWizardRejectsAModelIdNotInTheProvider(t *testing.T) {
+	dir := t.TempDir()
+	old := wizardFetchModels
+	wizardFetchModels = func(_ context.Context, wire, base, key string) ([]string, error) {
+		return []string{"engine-v1", "engine-v2"}, nil
+	}
+	defer func() { wizardFetchModels = old }()
+
+	io, buf := wizardTestIO("1\n14\nhttps://ai.corpo.internal/v1\nsk-x\nnope\nengine-v1\n3\n")
+	if err := configWizard(io, p(dir), &config.Config{}); err != nil {
+		t.Fatal(err)
+	}
+	s := loadWizardConfig(t, dir)
+	if s.Agents.Defaults.Model.Primary != "ai-corpo-internal/engine-v1" {
+		t.Errorf("primary = %q", s.Agents.Defaults.Model.Primary)
+	}
+	if !strings.Contains(buf.String(), `"nope" is not a model of ai-corpo-internal`) {
+		t.Errorf("an invalid model id was not called out:\n%s", buf.String())
+	}
+}
+
 func TestWizardRetriesABadPresetKey(t *testing.T) {
 	dir := t.TempDir()
 	old := wizardFetchModels
@@ -100,13 +121,16 @@ func TestWizardRetriesABadPresetKey(t *testing.T) {
 	defer func() { wizardFetchModels = old }()
 
 	// provider openai is #9 in the sorted preset list
-	io, _ := wizardTestIO("1\n9\nbad\ngood\n2\n3\n")
+	io, _ := wizardTestIO("1\n9\nbad\ngood\ngpt-4o\n3\n")
 	if err := configWizard(io, p(dir), &config.Config{}); err != nil {
 		t.Fatal(err)
 	}
 	s := loadWizardConfig(t, dir)
 	if s.Agents.Defaults.Model.Primary != "openai/gpt-4o" {
 		t.Errorf("primary = %q", s.Agents.Defaults.Model.Primary)
+	}
+	if !strings.Contains(io.Out.(*bytes.Buffer).String(), "rejected that key") {
+		t.Error("a rejected key was not called out\n" + io.Out.(*bytes.Buffer).String())
 	}
 }
 

@@ -201,7 +201,19 @@ func buildSeccompProgram(denied []uintptr) ([]bpfInstruction, error) {
 // sandbox.Restrict — the two layers do not need a particular order relative to
 // each other, only before the work they are meant to confine.
 func RestrictSyscalls() error {
-	prog, err := buildSeccompProgram(deniedSyscalls)
+	return RestrictSyscallsWithNetwork(true)
+}
+
+// RestrictSyscallsWithNetwork installs the syscall filter, optionally denying
+// every socket operation. A process whose protocol is stdin/stdout, such as a
+// tool plugin, has no reason to create a socket when network access was not
+// explicitly approved by its operator.
+func RestrictSyscallsWithNetwork(allowNetwork bool) error {
+	denied := deniedSyscalls
+	if !allowNetwork {
+		denied = append(append([]uintptr{}, deniedSyscalls...), networkSyscalls...)
+	}
+	prog, err := buildSeccompProgram(denied)
 	if err != nil {
 		return err
 	}
@@ -224,4 +236,17 @@ func RestrictSyscalls() error {
 		return fmt.Errorf("sandbox: install seccomp filter: %w", errno)
 	}
 	return nil
+}
+
+// networkSyscalls covers the socket lifecycle. Denying socket() is the
+// essential part; the rest closes use of inherited or pre-existing descriptors
+// and makes the policy unambiguous when this filter is reviewed.
+var networkSyscalls = []uintptr{
+	uintptr(unix.SYS_SOCKET), uintptr(unix.SYS_SOCKETPAIR),
+	uintptr(unix.SYS_CONNECT), uintptr(unix.SYS_BIND), uintptr(unix.SYS_LISTEN),
+	uintptr(unix.SYS_ACCEPT), uintptr(unix.SYS_ACCEPT4), uintptr(unix.SYS_SHUTDOWN),
+	uintptr(unix.SYS_SENDTO), uintptr(unix.SYS_SENDMSG),
+	uintptr(unix.SYS_RECVFROM), uintptr(unix.SYS_RECVMSG),
+	uintptr(unix.SYS_GETSOCKNAME), uintptr(unix.SYS_GETPEERNAME),
+	uintptr(unix.SYS_SETSOCKOPT), uintptr(unix.SYS_GETSOCKOPT),
 }

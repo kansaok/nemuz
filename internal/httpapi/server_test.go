@@ -253,6 +253,38 @@ func TestRequestsWithoutTheKeyAreRefused(t *testing.T) {
 	}
 }
 
+func TestRateLimitRejectsASecondCompletionFromTheSameClient(t *testing.T) {
+	runner := &stubRunner{outcome: agent.Outcome{Text: "ok", TurnID: "01RATE"}}
+	s, err := NewServer(Options{
+		Runner: runner, Model: "m", Addr: "127.0.0.1:0", RateLimit: 1,
+		RateWindow: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	request := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+			strings.NewReader(`{"messages":[{"role":"user","content":"halo"}]}`))
+		r.RemoteAddr = "203.0.113.8:1234"
+		return r
+	}
+
+	first := httptest.NewRecorder()
+	h.ServeHTTP(first, request())
+	if first.Code != http.StatusOK {
+		t.Fatalf("first request status = %d", first.Code)
+	}
+	second := httptest.NewRecorder()
+	h.ServeHTTP(second, request())
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request status = %d, want 429", second.Code)
+	}
+	if runner.calls != 1 {
+		t.Errorf("runner calls = %d, want 1", runner.calls)
+	}
+}
+
 // TestUnauthenticatedServerMustBeLoopbackOnly is the mistake worth making
 // impossible: an agent endpoint with no key, reachable off the machine, is a
 // remote shell with extra steps.

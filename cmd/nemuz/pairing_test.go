@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kansaok/nemuz/internal/config"
 )
@@ -14,8 +15,8 @@ func TestPairCodeRoundTripAndReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first) != 6 {
-		t.Errorf("code length = %d, want 6", len(first))
+	if len(first) != 10 {
+		t.Errorf("code length = %d, want 10", len(first))
 	}
 	again, err := issuePairCode(pairPath, 7361357941)
 	if err != nil {
@@ -30,6 +31,25 @@ func TestPairCodeRoundTripAndReuse(t *testing.T) {
 	}
 	if other == first {
 		t.Error("two users share one code")
+	}
+}
+
+func TestExpiredPairCodeIsRejected(t *testing.T) {
+	paths := config.At(t.TempDir())
+	pairPath := filepath.Join(paths.Root, pairFileName)
+	now := time.Date(2026, 9, 15, 10, 0, 0, 0, time.UTC)
+	pairNow = func() time.Time { return now }
+	t.Cleanup(func() { pairNow = time.Now })
+	code, err := issuePairCode(pairPath, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(pairCodeTTL + time.Second)
+	if _, err := authorizePairCode(paths, code); err == nil {
+		t.Fatal("expired pairing code was accepted")
+	}
+	if pending, err := loadPairCodes(pairPath); err != nil || len(pending) != 0 {
+		t.Errorf("expired pairing code was not discarded: %v, %v", pending, err)
 	}
 }
 

@@ -50,6 +50,9 @@ type Options struct {
 
 	// MaxSteps bounds the tool loop. Zero uses the default.
 	MaxSteps int
+	// MaxTokens caps output tokens for each model call. Zero uses the provider
+	// default.
+	MaxTokens int
 
 	// ReviewProvider performs the post-turn review's model calls. It defaults
 	// to Provider, but a smaller and cheaper model is usually the right choice:
@@ -181,6 +184,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 		Model:       a.opts.Model,
 		System:      system,
 		MaxSteps:    a.opts.MaxSteps,
+		MaxTokens:   a.opts.MaxTokens,
 		Environment: env,
 	}
 	out, runErr := runner.Run(ctx, prompt)
@@ -347,6 +351,9 @@ func (a *Agent) Replay(ctx context.Context, turnID string) error {
 	turn, err := journal.Find(a.paths.Journal, turnID)
 	if err != nil {
 		return err
+	}
+	if journal.IsRedacted(turn) {
+		return fmt.Errorf("nemuz: turn %s was redacted and cannot be replayed", turn.ID)
 	}
 	recorded, err := journal.Read(turn.Path)
 	if err != nil {

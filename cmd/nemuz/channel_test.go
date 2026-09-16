@@ -111,8 +111,8 @@ func TestTelegramBotPairingRepliesAnUnknownUserWithACode(t *testing.T) {
 		t.Fatalf("pairing file holds %d codes, want 1", len(m))
 	}
 	for code, userID := range m {
-		if userID != 999 {
-			t.Errorf("code %q is for user %d, want 999", code, userID)
+		if userID.UserID != 999 {
+			t.Errorf("code %q is for user %d, want 999", code, userID.UserID)
 		}
 		if !strings.Contains((*calls)[0]["text"].(string), code) {
 			t.Errorf("reply does not contain the stored code %q", code)

@@ -62,6 +62,12 @@ func (p Paths) EnsureDirs() error {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return fmt.Errorf("config: create %s: %w", d, err)
 		}
+		// MkdirAll preserves an existing mode. State may have been created by
+		// an older release or under a permissive umask, so creation alone does
+		// not establish the privacy this directory promises.
+		if err := os.Chmod(d, 0o700); err != nil {
+			return fmt.Errorf("config: secure %s: %w", d, err)
+		}
 	}
 	return nil
 }

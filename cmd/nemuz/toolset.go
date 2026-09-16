@@ -102,7 +102,7 @@ func buildToolset(ctx context.Context, opts toolsetOptions) (*toolset, error) {
 
 	policy := plugin.WorkspacePolicy{Workspace: root, AllowNet: opts.AllowNet, AllowExec: opts.AllowExec}
 	for _, command := range opts.PluginCmds {
-		client, _, err := startPlugin(ctx, command, root)
+		client, _, err := startPlugin(ctx, command, root, len(opts.AllowNet) > 0, opts.Sandbox)
 		if err != nil {
 			ts.Close()
 			return nil, err

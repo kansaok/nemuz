@@ -19,13 +19,54 @@ import (
 // script and capture what would have been printed. The buffered reader is
 // carried with the pair so lines keep coming from the same stream.
 type IO struct {
-	In  io.Reader
-	Out io.Writer
-	rd  *bufio.Reader
+	In    io.Reader
+	Out   io.Writer
+	rd    *bufio.Reader
+	clear func()
+	color func(code int, s string) string
 }
 
-// Terminal is an IO bound to the process's real stdin/stdout.
-func Terminal() IO { return IO{In: os.Stdin, Out: os.Stdout} }
+// Terminal is an IO bound to the process's real stdin/stdout. Its Clear method
+// rewrites the screen and Color wraps a string in ANSI codes, so an interactive
+// wizard shows one question at a time and can mark a validation green or red.
+func Terminal() IO {
+	return IO{
+		In:  os.Stdin,
+		Out: os.Stdout,
+		clear: func() {
+			// \x1b[2J clears, \x1b[H homes the cursor. No-op unless stdout is
+			// really a terminal — a pipe or a redirect must not get ANSI noise.
+			if isatty.IsTerminal(os.Stdout.Fd()) {
+				fmt.Fprint(os.Stdout, "\x1b[2J\x1b[H")
+			}
+		},
+		color: func(code int, s string) string {
+			if !isatty.IsTerminal(os.Stdout.Fd()) {
+				return s
+			}
+			return fmt.Sprintf("\x1b[%dm%s\x1b[0m", code, s)
+		},
+	}
+}
+
+// Clear rewrites the screen before a fresh step, so a wizard never piles the
+// earlier questions up the terminal. It is a no-op on a pipe or a buffer.
+func (io *IO) Clear() {
+	if io.clear != nil {
+		io.clear()
+	}
+}
+
+// Color wraps s in an ANSI color code when stdout is a real terminal (32 =
+// green, 31 = red, 33 = yellow, 1 = bold); off a terminal it returns s
+// untouched, so a "valid"/"invalid" status colors for a human without
+// polluting a piped run's output.
+func (io *IO) Color(code int, s string) string {
+	if io.color != nil {
+		return io.color(code, s)
+	}
+	return s
+}
 
 func (io *IO) reader() *bufio.Reader {
 	if io.rd == nil {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -34,15 +36,16 @@ var (
 // proof the key works, which of its models to use — then how to reach the
 // agent (a channel) and who may talk to it.
 func configWizard(io *cli.IO, paths *config.Paths, s *config.Config) error {
-	fmt.Fprintf(io.Out, "nemuz configuration — edits %s (+ a .env, if secrets are set)\n", paths.Config)
-	if s.Agents.Defaults.Provider != "" || s.Agents.Defaults.Model.Primary != "" {
-		model := s.Agents.Defaults.Model.Primary
-		if model == "" {
-			model = "(none)"
-		}
-		fmt.Fprintf(io.Out, "currently saved — provider: %s · model: %s\n", s.Agents.Defaults.Provider, model)
-	}
 	for {
+		io.Clear()
+		fmt.Fprintf(io.Out, "nemuz configuration — edits %s (+ a .env, if secrets are set)\n", paths.Config)
+		if s.Agents.Defaults.Provider != "" || s.Agents.Defaults.Model.Primary != "" {
+			model := s.Agents.Defaults.Model.Primary
+			if model == "" {
+				model = "(none)"
+			}
+			fmt.Fprintf(io.Out, "currently saved — provider: %s · model: %s\n", s.Agents.Defaults.Provider, model)
+		}
 		choice, err := io.Pick("\nWhat do you want to set up?", []string{
 			"model\nwhich provider talks, and which model it uses",
 			"channel\na way to reach the agent (telegram)",
@@ -72,6 +75,13 @@ func configWizard(io *cli.IO, paths *config.Paths, s *config.Config) error {
 	}
 }
 
+// lineColor prints one colored status line: green for a validation that
+// passed, red for one that failed. Off a terminal io.Color returns plain text,
+// so a piped run still reads cleanly.
+func lineColor(io *cli.IO, code int, format string, a ...any) {
+	fmt.Fprintln(io.Out, io.Color(code, fmt.Sprintf(format, a...)))
+}
+
 // errWizardStop unwinds one setup section back to the main menu without
 // losing anything already saved.
 var errWizardStop = errors.New("stop this section")
@@ -85,6 +95,7 @@ func interrupt(err error) error {
 }
 
 func finishWizard(io *cli.IO) error {
+	io.Clear()
 	fmt.Fprintln(io.Out, `Setup finished. Every command loads config fresh, so nothing needs a
           restart for plain `+"`nemuz run`"+` — only a process already running
           (nemuz serve, nemuz channel telegram, nemuz chat) has to be
@@ -98,6 +109,7 @@ func finishWizard(io *cli.IO) error {
 // ---------------------------------------------------------------- model setup
 
 func setupModel(io *cli.IO, paths *config.Paths, s *config.Config) error {
+	io.Clear()
 	names := provider.PresetNames()
 	options := make([]string, 0, len(names)+2)
 	for _, n := range names {
@@ -132,12 +144,13 @@ func setupPresetProvider(io *cli.IO, paths *config.Paths, s *config.Config, pres
 	)
 	if p.KeyEnv == "" {
 		// local presets (ollama, lmstudio, vllm) need no key and no probing.
-		model, err = pickModel(io, presetName, nil, "(type the model id)")
+		model, err = promptModelID(io, presetName, nil)
 		if err != nil {
 			return err
 		}
 	} else {
 		for {
+			io.Clear()
 			key, err = io.ReadSecret(fmt.Sprintf("API key for %s (saved as %s):", presetName, p.KeyEnv))
 			if err != nil {
 				return interrupt(err)
@@ -148,18 +161,18 @@ func setupPresetProvider(io *cli.IO, paths *config.Paths, s *config.Config, pres
 			ids, verr := wizardFetchModels(context.Background(), p.Wire(), p.BaseURL, key)
 			switch {
 			case errors.Is(verr, errBadKey):
-				fmt.Fprintf(io.Out, "  %s rejected that key — try again\n", presetName)
+				lineColor(io, 31, "  %s rejected that key — try again", presetName)
 				continue
 			case errors.Is(verr, errNoModelList):
-				fmt.Fprintf(io.Out, "  key accepted (no model list exposed)\n")
+				lineColor(io, 32, "  key valid")
 				ids = nil
 			case verr != nil:
-				fmt.Fprintf(io.Out, "  could not check the key: %v — try again\n", verr)
+				lineColor(io, 31, "  could not check the key: %v — try again", verr)
 				continue
 			default:
-				fmt.Fprintf(io.Out, "  key accepted — %d models found\n", len(ids))
+				lineColor(io, 32, "  key valid — %d model(s) available", len(ids))
 			}
-			model, err = pickModel(io, presetName, ids, "(type the model id)")
+			model, err = promptModelID(io, presetName, ids)
 			if err != nil {
 				return err
 			}
@@ -175,11 +188,12 @@ func setupPresetProvider(io *cli.IO, paths *config.Paths, s *config.Config, pres
 	if err := config.Save(paths.Config, s); err != nil {
 		return fmt.Errorf("config: save %s: %w", paths.Config, err)
 	}
-	fmt.Fprintf(io.Out, "\nmodel saved: %s/%s\n", presetName, model)
+	lineColor(io, 32, "\nmodel saved: %s/%s", presetName, model)
 	return nil
 }
 
 func setupCustomProvider(io *cli.IO, paths *config.Paths, s *config.Config) error {
+	io.Clear()
 	base, err := io.Prompt("Custom provider base URL (e.g. https://ai.corpo.internal/v1):")
 	if err != nil {
 		return interrupt(err)
@@ -196,6 +210,7 @@ func setupCustomProvider(io *cli.IO, paths *config.Paths, s *config.Config) erro
 
 	var key, model string
 	for {
+		io.Clear()
 		key, err = io.ReadSecret(fmt.Sprintf("API key for %s (saved as %s):", name, keyEnv))
 		if err != nil {
 			return interrupt(err)
@@ -206,18 +221,18 @@ func setupCustomProvider(io *cli.IO, paths *config.Paths, s *config.Config) erro
 		ids, verr := wizardFetchModels(context.Background(), "openai-completions", base, key)
 		switch {
 		case errors.Is(verr, errBadKey):
-			fmt.Fprintln(io.Out, "  the gateway rejected that key — try again")
+			lineColor(io, 31, "  the gateway rejected that key — try again")
 			continue
 		case errors.Is(verr, errNoModelList):
-			fmt.Fprintf(io.Out, "  key accepted (the gateway exposes no model list)\n")
+			lineColor(io, 32, "  key valid")
 			ids = nil
 		case verr != nil:
-			fmt.Fprintf(io.Out, "  could not check the key: %v — try again\n", verr)
+			lineColor(io, 31, "  could not check the key: %v — try again", verr)
 			continue
 		default:
-			fmt.Fprintf(io.Out, "  key accepted — %d models found\n", len(ids))
+			lineColor(io, 32, "  key valid — %d model(s) available", len(ids))
 		}
-		model, err = pickModel(io, name, ids, "(type the model id)")
+		model, err = promptModelID(io, name, ids)
 		if err != nil {
 			return err
 		}
@@ -242,47 +257,39 @@ func setupCustomProvider(io *cli.IO, paths *config.Paths, s *config.Config) erro
 	if err := config.Save(paths.Config, s); err != nil {
 		return fmt.Errorf("config: save %s: %w", paths.Config, err)
 	}
-	fmt.Fprintf(io.Out, "\nmodel saved: %s/%s (%s), key → %s\n", name, model, base, keyEnv)
+	lineColor(io, 32, "\nmodel saved: %s/%s (%s), key → %s", name, model, base, keyEnv)
 	return nil
 }
 
-// pickModel offers the provider's real models (ids, from the validation call)
-// with a free-text option at the top, so a gateway without a /models endpoint
-// still works by typing. ids may be nil, in which case only the free text is
-// offered.
-func pickModel(io *cli.IO, where string, ids []string, freeLabel string) (string, error) {
-	free := freeLabel
-	if free == "" {
-		free = "(type a model name)"
-	}
-	options := []string{free}
-	for _, id := range ids {
-		options = append(options, id)
-	}
-	msg := "Which model should the agent use with " + where + "?"
-	if len(ids) > 0 {
-		msg = fmt.Sprintf("Which model should the agent use with %s? (%d found; 1 = type one)", where, len(ids))
-	}
-	choice, err := io.Pick(msg, options)
-	if err != nil {
-		return "", interrupt(err)
-	}
-	if choice == 0 {
-		m, err := io.Prompt("Type the model id:")
+// promptModelID asks for a model id as a plain text line and checks it against
+// the ids the key validation fetched, so a typo is caught before it reaches
+// the provider. ids may be nil (a gateway with no /models endpoint): anything
+// typed is then accepted as-is.
+func promptModelID(io *cli.IO, where string, ids []string) (string, error) {
+	sort.Strings(ids)
+	for {
+		io.Clear()
+		m, err := io.Prompt("Model id to use with " + where + ":")
 		if err != nil {
 			return "", interrupt(err)
 		}
+		m = strings.TrimSpace(m)
 		if m == "" {
 			return "", errWizardStop
 		}
+		if len(ids) > 0 && !slices.Contains(ids, m) {
+			lineColor(io, 31, "  %q is not a model of %s — try again", m, where)
+			continue
+		}
+		lineColor(io, 32, "  model ok — using %s", m)
 		return m, nil
 	}
-	return options[choice], nil
 }
 
 // -------------------------------------------------------------- channel setup
 
 func setupChannel(io *cli.IO, paths *config.Paths, s *config.Config) error {
+	io.Clear()
 	choice, err := io.Pick("Which channel?", []string{
 		"telegram\nlong-polls the Bot API — no public URL or TLS needed",
 		"cancel\ndon't touch channels",
@@ -297,6 +304,7 @@ func setupChannel(io *cli.IO, paths *config.Paths, s *config.Config) error {
 
 	var token string
 	for {
+		io.Clear()
 		t, err := io.ReadSecret("Telegram bot token (from @BotFather):")
 		if err != nil {
 			return interrupt(err)
@@ -306,14 +314,15 @@ func setupChannel(io *cli.IO, paths *config.Paths, s *config.Config) error {
 		}
 		me, err := wizardBotCheck(context.Background(), t)
 		if err != nil {
-			fmt.Fprintf(io.Out, "  telegram rejected that token: %v\n", err)
+			lineColor(io, 31, "  telegram rejected that token: %v", err)
 			continue
 		}
-		fmt.Fprintf(io.Out, "  token ok — bot @%s\n", me.Username)
+		lineColor(io, 32, "  token ok — bot @%s", me.Username)
 		token = t
 		break
 	}
 
+	io.Clear()
 	method, err := io.Pick("Who may talk to the bot?", []string{
 		"pairing (recommended)\nmessage the bot, get a pairing code, authorize it here",
 		"manual\nI'll type the Telegram user ids myself",
@@ -348,7 +357,8 @@ func setupChannel(io *cli.IO, paths *config.Paths, s *config.Config) error {
 		if err := config.Save(paths.Config, s); err != nil {
 			return fmt.Errorf("config: save %s: %w", paths.Config, err)
 		}
-		fmt.Fprintf(io.Out, "\ntelegram saved — %d user(s) allowed\n\nTo run it:  nemuz channel telegram\n", len(ids))
+		lineColor(io, 32, "\ntelegram saved — %d user(s) allowed", len(ids))
+		fmt.Fprintln(io.Out, "\nTo run it:  nemuz channel telegram")
 		return nil
 	}
 
@@ -368,6 +378,7 @@ Finish this wizard (done) and message the bot again: it answers from then on.`)
 }
 
 func promptUserIDs(io *cli.IO) ([]int64, error) {
+	io.Clear()
 	raw, err := io.Prompt("Telegram user id(s), comma separated (your own id is easiest):")
 	if err != nil {
 		return nil, interrupt(err)

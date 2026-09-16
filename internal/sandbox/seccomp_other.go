@@ -10,3 +10,7 @@ var ErrSeccompUnsupported = errors.New("sandbox: seccomp is a Linux facility")
 // RestrictSyscalls always fails off Linux, so a caller cannot mistake an
 // unfiltered process for a filtered one.
 func RestrictSyscalls() error { return ErrSeccompUnsupported }
+
+// RestrictSyscallsWithNetwork is the portable counterpart to
+// RestrictSyscalls. Off Linux no seccomp policy can be installed.
+func RestrictSyscallsWithNetwork(bool) error { return ErrSeccompUnsupported }

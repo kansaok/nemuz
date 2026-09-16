@@ -277,12 +277,15 @@ $ nemuz config
 
 Picking `model` lists every built-in preset plus "custom provider". Choose one
 and type the API key: the line is read without echoing, then validated live by
-asking the provider for its model list — a bad key gets a clear "rejected, try
-again" instead of a later, confusing failure. Custom providers ask for the base
+asking the provider for its model list — the verdict prints green on success and
+red when the provider rejects the key (or the check itself fails), with a fresh
+screen per step. Custom
+providers ask for the base
 URL (any OpenAI-compatible endpoint, e.g. `https://ai.corpo.internal/v1`), and
-whatever provider was chosen finishes by letting you pick the exact model from
-the list the endpoint really returned, or type one. Picking `channel` walks the
-same way through the Telegram bot token (`nemuz channel telegram` will then
+whatever provider was chosen finishes with a single prompt for the model id —
+typed, not picked, then checked back against the list the endpoint returned, so
+a typo surfaces red before it ever reaches the provider. Picking `channel` walks
+the same way through the Telegram bot token (`nemuz channel telegram` will then
 start with the settings already saved). `done` prints what was saved and how to
 reload it — settings are reread on every command, so only a long-running
 process like `nemuz channel telegram` needs a restart.

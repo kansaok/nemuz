@@ -38,6 +38,9 @@ type Agent struct {
 	System string
 	// MaxSteps bounds the tool loop. Zero means DefaultMaxSteps.
 	MaxSteps int
+	// MaxTokens caps model output on each provider request. Zero lets the
+	// provider choose its default.
+	MaxTokens int
 	// Environment is recorded in turn.start alongside the prompt: how the
 	// tools were confined, which plugins were loaded, anything an operator
 	// reading the journal later would want to know.
@@ -94,10 +97,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 		out.Steps = step
 
 		resp, err := a.Provider.Complete(ctx, llm.Request{
-			Model:    a.Model,
-			System:   a.System,
-			Messages: messages,
-			Tools:    defs,
+			Model:     a.Model,
+			System:    a.System,
+			Messages:  messages,
+			Tools:     defs,
+			MaxTokens: a.MaxTokens,
 		})
 		if err != nil {
 			return out, a.fail(out, "model", err)

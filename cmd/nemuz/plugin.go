@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/kansaok/nemuz/internal/plugin"
+	"github.com/kansaok/nemuz/internal/sandbox"
 	"github.com/kansaok/nemuz/internal/tool"
 	"github.com/spf13/cobra"
 )
@@ -37,7 +40,7 @@ func pluginInspectCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		Example: `  nemuz plugin inspect "node ./examples/plugin-ts/plugin.mjs"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, ws, err := startPlugin(cmd.Context(), args[0], workspace)
+			client, ws, err := startPlugin(cmd.Context(), args[0], workspace, false, SandboxAuto)
 			if err != nil {
 				return err
 			}
@@ -91,7 +94,7 @@ func pluginCallCmd() *cobra.Command {
 				payload = json.RawMessage(args[2])
 			}
 
-			client, ws, err := startPlugin(cmd.Context(), args[0], workspace)
+			client, ws, err := startPlugin(cmd.Context(), args[0], workspace, len(allowNet) > 0, SandboxAuto)
 			if err != nil {
 				return err
 			}
@@ -125,7 +128,7 @@ func pluginCallCmd() *cobra.Command {
 
 // startPlugin launches a plugin from a command line and returns it with the
 // resolved workspace.
-func startPlugin(ctx context.Context, command, workspace string) (*plugin.Client, string, error) {
+func startPlugin(ctx context.Context, command, workspace string, allowNet bool, mode SandboxMode) (*plugin.Client, string, error) {
 	argv, err := splitCommand(command)
 	if err != nil {
 		return nil, "", err
@@ -137,8 +140,20 @@ func startPlugin(ctx context.Context, command, workspace string) (*plugin.Client
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	program, err := exec.LookPath(argv[0])
+	if err != nil {
+		return nil, "", fmt.Errorf("plugin: find %s: %w", argv[0], err)
+	}
+	if resolved, err := filepath.EvalSymlinks(program); err == nil {
+		program = resolved
+	}
+	argv[0] = program
+	wrapped, err := sandboxPluginCommand(argv, ws, allowNet, mode)
+	if err != nil {
+		return nil, "", err
+	}
 	client, err := plugin.Start(ctx, plugin.Options{
-		Command:     argv,
+		Command:     wrapped,
 		Workspace:   ws,
 		HostVersion: Version,
 	})
@@ -146,6 +161,30 @@ func startPlugin(ctx context.Context, command, workspace string) (*plugin.Client
 		return nil, "", err
 	}
 	return client, ws, nil
+}
+
+// sandboxPluginCommand turns a plugin argv into an invocation of our private
+// launcher. The launcher applies its restrictions before exec'ing the plugin,
+// which is the only point at which an untrusted program can be safely confined.
+func sandboxPluginCommand(argv []string, workspace string, allowNet bool, mode SandboxMode) ([]string, error) {
+	self, err := executablePath()
+	if err != nil {
+		return nil, fmt.Errorf("plugin: locate nemuz plugin launcher: %w", err)
+	}
+	encoded, err := json.Marshal(argv)
+	if err != nil {
+		return nil, fmt.Errorf("plugin: encode command: %w", err)
+	}
+	sandboxed := mode != SandboxOff
+	if sandboxed && !sandbox.Available() {
+		if mode == SandboxOn {
+			return nil, fmt.Errorf("plugin: --sandbox=on was requested but this kernel cannot enforce it")
+		}
+		sandboxed = false
+	}
+	return []string{self, "plugin-worker", "--workspace", workspace,
+		"--argv-json", string(encoded), "--allow-net=" + fmt.Sprint(allowNet),
+		"--sandbox=" + fmt.Sprint(sandboxed)}, nil
 }
 
 // splitCommand splits a command line on spaces, honouring single and double
